@@ -1,0 +1,3 @@
+# Project exclude paths
+/backend_django/
+/frontend_react/
