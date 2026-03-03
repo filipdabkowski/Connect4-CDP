@@ -1,3 +1,9 @@
-# Project exclude paths
-/backend_django/
-/frontend_react/
+# IDE files
+.idea
+
+# Env files
+.venv/
+node_modules
+
+# DB files
+db.sqlite3
