@@ -1,3 +1,19 @@
 from django.contrib import admin
 
-# Register your models here.
+from .models import Player
+
+
+@admin.register(Player)
+class PlayerAdmin(admin.ModelAdmin):
+	list_display = (
+		"id",
+		"user",
+		"games_played",
+		"wins",
+		"losses",
+		"draws",
+	)
+
+	search_fields = ("user__username",)
+
+	list_select_related = ("user",)

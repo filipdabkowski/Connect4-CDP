@@ -1,3 +1,18 @@
-from django.shortcuts import render
+from django.contrib.auth.models import User
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from django.shortcuts import get_object_or_404
 
-# Create your views here.
+from .models import Player
+from .serializers import PlayerSerializer
+
+
+class PlayerView(APIView):
+	permission_classes = [IsAuthenticated]
+
+	def get(self, request, username):
+		player = get_object_or_404(Player, user__username=username)
+
+		serializer = PlayerSerializer(player)
+		return Response(serializer.data)

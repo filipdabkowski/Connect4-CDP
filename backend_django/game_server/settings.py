@@ -38,6 +38,9 @@ INSTALLED_APPS = [
 
 	# Third party apps
 	'rest_framework',
+	
+	# Project apps
+	'player.apps.PlayerConfig'
 ]
 
 MIDDLEWARE = [
