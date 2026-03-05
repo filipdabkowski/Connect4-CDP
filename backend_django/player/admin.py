@@ -6,7 +6,6 @@ from .models import Player
 @admin.register(Player)
 class PlayerAdmin(admin.ModelAdmin):
 	list_display = (
-		"id",
 		"user",
 		"games_played",
 		"wins",
