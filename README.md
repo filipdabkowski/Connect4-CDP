@@ -3,6 +3,11 @@
 ## Road Map
 
 - [ ] Login & Sign up pages (back REST API & front)
+  - [x] Login connected and works (simple)
+  - [ ] Register connected
+  - [ ] Error handling
+  - [ ] Logout
+  - [ ] Redirect to game and login page (IsAuth)
 - [ ] Manual game room creation (channels & web sockets)
 - [ ] Game implementation frontend interface
 - [ ] Game logic implementation backend (move validation ...)
