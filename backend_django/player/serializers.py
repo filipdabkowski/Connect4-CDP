@@ -8,4 +8,4 @@ class PlayerSerializer(serializers.ModelSerializer):
 
 	class Meta:
 		model = Player
-		fields = ("id", "username", "games_played")
+		fields = ("username", "games_played")
