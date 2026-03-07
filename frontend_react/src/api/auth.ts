@@ -1,24 +1,26 @@
 import { api } from "./client";
 
-export type LoginPayload = { username: string; password: string };
-export type RegisterPayload = { username: string; password: string };
-
 export type User = {
-  id: string | number;
-  username?: string;
+  username: string;
+  games_played: number;
 };
 
-export type AuthResponse = {
-  access_token: string;
-  user?: User | null;
+export type LoginPayload = {
+    username: string;
+    password: string;
+}
+
+export type LoginResponse = {
+  access: string;
+  refresh: string;
 };
 
-export async function registerRequest(payload: RegisterPayload): Promise<AuthResponse> {
-  const res = await api.post<AuthResponse>("/auth/register", payload);
+export async function login(payload: LoginPayload): Promise<LoginResponse> {
+  const res = await api.post<LoginResponse>("/auth/login", payload);
   return res.data;
 }
 
-export async function loginRequest(payload: LoginPayload): Promise<AuthResponse> {
-  const res = await api.post<AuthResponse>("/auth/login", payload);
-  return res.data;
+export async function getMe(): Promise<User> {
+    const res = await api.get<User>("player/");
+    return res.data;
 }

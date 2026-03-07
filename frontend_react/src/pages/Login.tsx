@@ -2,8 +2,11 @@ import {Link} from "react-router-dom";
 import React, {useState} from "react";
 import MainButton from "../components/MainButton";
 import FormInput from "../components/FormInput.tsx";
+import { useAuth } from "../auth/useAuth.ts";
 
 export default function LoginPage() {
+    const { login } = useAuth();
+    
     const [form, setForm] = useState({
         username: "",
         password: ""
@@ -46,7 +49,7 @@ export default function LoginPage() {
             return
         }
         
-        await api
+        await login({username: form.username, password: form.password})
     }
 
     return (
