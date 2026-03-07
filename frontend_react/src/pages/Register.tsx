@@ -6,15 +6,8 @@ import FormInput from "../components/FormInput.tsx";
 export default function LoginPage() {
     const [form, setForm] = useState({
         username: "",
-        password: ""
-    })
-    const [valid, setValid] = useState({
-        username: true,
-        password: true
-    })
-    const [errMessage, setErrMessage] = useState({
-        username: "",
-        password: ""
+        password: "",
+        passwordConfirm: ""
     })
 
     function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -24,75 +17,57 @@ export default function LoginPage() {
             ...prevState,
             [name]: value
         }));
-        // After a change of invalid field assume it will be valid
-        setValid((prevState) => ({
-            ...prevState,
-            [name]: true
-        }));
-    }
-    
-    async function submit(e: React.SubmitEvent) {
-        e.preventDefault();
-        // reset and assume it will be correct
-        setValid({username: true, password: true});
-        setErrMessage({username: "", password: ""});
-        // check if both fields are filled
-        if (!form.username || !form.password) {
-            setValid({username: !!form.username, password: !!form.password})
-            setErrMessage({
-                username: valid.username ? "" : "Username required.",
-                password: valid.password ? "" : "Password required."
-            })
-            return
-        }
-        
-        await api
     }
 
     return (
         <div className="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8">
             <div className="sm:mx-auto sm:w-full sm:max-w-sm">
                 <h2 className="text-center text-2xl/9 font-bold tracking-tight text-white">
-                    Sign in to your account
+                    Create new Player account
                 </h2>
             </div>
 
             <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
-                <form action="#" method="POST" className="space-y-5" onSubmit={submit}>
+                <form action="#" method="POST" className="space-y-5">
                     <FormInput
                         type="text"
                         name="username"
                         value={form.username}
-                        placeholder="Input Username"
+                        placeholder="Pick Username"
                         required={true}
                         label="Username"
                         onChange={handleChange}
-                        valid={valid.username}
-                        validMessage={errMessage.username}
                     ></FormInput>
 
                     <FormInput
                         type="password"
                         name="password"
                         value={form.password}
-                        placeholder="Hope you didn't forget"
+                        placeholder="Input password"
                         required={true}
                         label="Password"
                         onChange={handleChange}
-                        valid={valid.password}
-                        validMessage={errMessage.password}
                     ></FormInput>
                     
+                    <FormInput
+                        type="password"
+                        name="passwordConfirm"
+                        value={form.passwordConfirm}
+                        placeholder="Confirm password"
+                        required={true}
+                        label="Confirm"
+                        onChange={handleChange}
+                    ></FormInput>
 
                     <div>
-                        <MainButton>Sign In</MainButton>
+                        <MainButton>Sign Up</MainButton>
                     </div>
                 </form>
 
                 <p className="mt-10 text-center text-sm/6 text-gray-400">
-                    Not a player yet? 
-                    <Link to="/register" className="font-semibold text-indigo-400 hover:text-indigo-300">
-                        &nbsp;Create an account now
+                    Already a Player? 
+                    <Link to="/" className="font-semibold text-indigo-400 hover:text-indigo-300">
+                        &nbsp;Login to your account
                     </Link>
                 </p>
             </div>
