@@ -1,5 +1,5 @@
 import React, { useEffect, useState} from "react";
-import type {LoginPayload, User} from "../api/auth";
+import type {LoginPayload, RegisterPayload, User} from "../api/auth";
 import * as authApi from "../api/auth";
 import { AuthContext } from "./AuthContext";
 
@@ -10,7 +10,7 @@ export function AuthProvider({children}: { children: React.ReactNode }) {
     // Initialize user
     useEffect(() => {
         async function loadUser() {
-            const token = localStorage.getItem("accessToken");
+            const token = localStorage.getItem("access_token");
             // defaults to null if no token present
             if (!token) return;
             try {
@@ -19,10 +19,10 @@ export function AuthProvider({children}: { children: React.ReactNode }) {
                 setUser(me);
             } catch {
                 // Token didn't work, remove from memory
-                localStorage.removeItem("accessToken");
+                localStorage.removeItem("access_token");
             }
         }
-
+        
         loadUser();
     }, []);
     
@@ -39,11 +39,16 @@ export function AuthProvider({children}: { children: React.ReactNode }) {
         localStorage.removeItem("access_token");
         setUser(null);
     }
+    
+    async function register(data: RegisterPayload) {
+        await authApi.register(data);
+    }
 
     return <AuthContext.Provider value={{
         user,
         isAuth: !!user,
         login,
         logout,
+        register
     }}>{children}</AuthContext.Provider>;
 }
