@@ -4,7 +4,7 @@
 
 - [ ] Login & Sign up pages (back REST API & front)
   - [x] Login connected and works (simple)
-  - [ ] Register connected
+  - [x] Register connected
   - [ ] Error handling
   - [ ] Logout
   - [ ] Redirect to game and login page (IsAuth)
