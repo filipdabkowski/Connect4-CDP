@@ -9,7 +9,7 @@ type FormInputProps = {
     placeholder?: string;
     onChange?: (value: React.ChangeEvent<HTMLInputElement>) => void;
     valid?: boolean;
-    validMessage?: string;
+    validMessage?: string[];
 };
 
 export default function FormInput({type, name, label, value, required, placeholder, onChange, valid, validMessage}: FormInputProps) {
@@ -35,7 +35,9 @@ export default function FormInput({type, name, label, value, required, placehold
                         ${!valid ? "text-pink-600 outline-pink-500 focus:outline-pink-500" : "text-white outline-white/10 focus:outline-indigo-500"}
                     `}
                 />
-                {(validMessage) && <p className="text-sm mt-2 text-pink-600">Hello worlsd</p>}
+                {validMessage && validMessage.map((msg, i) => (
+                    <p key={i} className="text-sm mt-2 text-pink-600">{msg}</p>
+                ))}
             </div>
         </div>
     );
