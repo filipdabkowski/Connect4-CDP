@@ -10,6 +10,7 @@ type RegisterFieldErrors = {
     username?: string[];
     password?: string[];
     passwordConfirm?: string[];
+    detail?: string;
 };
 
 export default function RegisterPage() {
@@ -46,7 +47,7 @@ export default function RegisterPage() {
         e.preventDefault();
         // reset and assume it will be correct
         setValid({username: true, password: true, passwordConfirm: true});
-        setErrMessage({});
+        setErrMessage({username: [], password: [], passwordConfirm: []});
         // check if all fields are filled
         if (!form.username || !form.password || !form.passwordConfirm) {
             setValid({username: !!form.username, password: !!form.password, passwordConfirm: !!form.passwordConfirm});
@@ -59,16 +60,16 @@ export default function RegisterPage() {
         }
         // check if passwords match
         if (form.password != form.passwordConfirm) {
-            setValid({
-                ...valid,
+            setValid((prevState) => ({
+                ...prevState,
                 password: false,
                 passwordConfirm: false,
-            })
-            setErrMessage({
-                ...errMessage,
+            }))
+            setErrMessage((prevState) => ({
+                ...prevState,
                 password: ["Passwords do not match."],
                 passwordConfirm: ["Passwords do not match."]
-            })
+            }))
             return
         }
 
@@ -78,14 +79,16 @@ export default function RegisterPage() {
         } catch (err) {
             if (err instanceof ApiValidationError) {
                 const errors = err.fieldErrors;
-                console.log(errors);
                 setErrMessage(errors);
+                // fields that have an error, mark as invalid
                 setValid((prevState) => ({
                     ...prevState,
                     ...Object.fromEntries(
                         Object.keys(errors).map((key) => [key, false])
                     ),
                 }))
+            } else if (err instanceof Error) {
+                console.log("HIIII")
             }
         }
     }
@@ -142,6 +145,8 @@ export default function RegisterPage() {
                         valid={valid.passwordConfirm}
                         validMessage={errMessage?.passwordConfirm}
                     ></FormInput>
+                    
+                    {errMessage?.detail && <p className="text-sm mt-2 text-pink-600">{errMessage?.detail}</p>}
 
                     <div>
                         <MainButton>Sign Up</MainButton>

@@ -1,9 +1,9 @@
-import { api } from "./client";
+import {api} from "./client";
 import axios from "axios";
 
 export type User = {
-  username: string;
-  games_played: number;
+    username: string;
+    games_played: number;
 };
 
 export type LoginPayload = {
@@ -12,8 +12,8 @@ export type LoginPayload = {
 }
 
 export type LoginResponse = {
-  access: string;
-  refresh: string;
+    access: string;
+    refresh: string;
 };
 
 export type RegisterPayload = {
@@ -38,8 +38,19 @@ export class ApiValidationError extends Error {
 }
 
 export async function login(payload: LoginPayload): Promise<LoginResponse> {
-  const res = await api.post<LoginResponse>("/auth/login", payload);
-  return res.data;
+    try {
+        const res = await api.post<LoginResponse>("/auth/login", payload);
+        return res.data;
+    } catch (err: unknown) {
+        if (axios.isAxiosError(err) && err.response?.data) {
+            const data = err.response.data;
+            if (typeof data === "object" && data !== null) {
+                throw new ApiValidationError(data as FieldErrors);
+            }
+        }
+        
+        throw new Error("Login failed.")
+    }
 }
 
 export async function getMe(): Promise<User> {
@@ -54,13 +65,12 @@ export async function register(payload: RegisterPayload): Promise<RegisterRespon
     } catch (err: unknown) {
         if (axios.isAxiosError(err) && err.response?.data) {
             const data = err.response.data;
-
             // { username: ["..."], password: ["..."] }
             if (typeof data === "object" && data !== null) {
                 throw new ApiValidationError(data as FieldErrors);
             }
         }
 
-        throw new Error("Registration failed");
+        throw new Error("Registration failed.");
     }
 }

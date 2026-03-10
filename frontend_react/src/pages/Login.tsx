@@ -2,11 +2,19 @@ import {Link} from "react-router-dom";
 import React, {useState} from "react";
 import MainButton from "../components/MainButton";
 import FormInput from "../components/FormInput.tsx";
-import { useAuth } from "../auth/useAuth.ts";
+import {useAuth} from "../auth/useAuth.ts";
+import {ApiValidationError} from "../api/auth.ts";
+
+
+type LoginFieldErrors = {
+    username?: string[];
+    password?: string[];
+    detail?: string;
+};
 
 export default function LoginPage() {
-    const { login } = useAuth();
-    
+    const {login} = useAuth();
+
     const [form, setForm] = useState({
         username: "",
         password: ""
@@ -15,10 +23,7 @@ export default function LoginPage() {
         username: true,
         password: true
     })
-    const [errMessage, setErrMessage] = useState({
-        username: "",
-        password: ""
-    })
+    const [errMessage, setErrMessage] = useState<LoginFieldErrors>()
 
     function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
         const {name, value} = e.target;
@@ -33,23 +38,38 @@ export default function LoginPage() {
             [name]: true
         }));
     }
-    
+
     async function submit(e: React.SubmitEvent) {
         e.preventDefault();
         // reset and assume it will be correct
         setValid({username: true, password: true});
-        setErrMessage({username: "", password: ""});
+        setErrMessage({});
         // check if both fields are filled
         if (!form.username || !form.password) {
             setValid({username: !!form.username, password: !!form.password})
             setErrMessage({
-                username: valid.username ? "" : "Username required.",
-                password: valid.password ? "" : "Password required."
+                username: valid.username ? undefined : ["Username required."],
+                password: valid.password ? undefined : ["Password required."]
             })
             return
         }
-        
-        await login({username: form.username, password: form.password})
+
+        try {
+            await login({username: form.username, password: form.password})
+        } catch (err) {
+            if (err instanceof ApiValidationError) {
+                const errors = err.fieldErrors;
+                console.log(errors)
+                setErrMessage(errors);
+                // fields that have an error, mark as invalid
+                setValid((prevState) => ({
+                    ...prevState,
+                    ...Object.fromEntries(
+                        Object.keys(errors).map((key) => [key, false])
+                    ),
+                }))
+            }
+        }
     }
 
     return (
@@ -71,7 +91,7 @@ export default function LoginPage() {
                         label="Username"
                         onChange={handleChange}
                         valid={valid.username}
-                        validMessage={errMessage.username}
+                        validMessage={errMessage?.username}
                     ></FormInput>
 
                     <FormInput
@@ -83,9 +103,10 @@ export default function LoginPage() {
                         label="Password"
                         onChange={handleChange}
                         valid={valid.password}
-                        validMessage={errMessage.password}
+                        validMessage={errMessage?.password}
                     ></FormInput>
-                    
+
+                    {errMessage?.detail && <p className="text-sm mt-2 text-pink-600">{errMessage?.detail}</p>}
 
                     <div>
                         <MainButton>Sign In</MainButton>
@@ -93,7 +114,7 @@ export default function LoginPage() {
                 </form>
 
                 <p className="mt-10 text-center text-sm/6 text-gray-400">
-                    Not a player yet? 
+                    Not a player yet?
                     <Link to="/register" className="font-semibold text-indigo-400 hover:text-indigo-300">
                         &nbsp;Create an account now
                     </Link>
