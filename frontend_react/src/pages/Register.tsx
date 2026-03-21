@@ -4,6 +4,7 @@ import MainButton from "../components/MainButton";
 import FormInput from "../components/FormInput.tsx";
 import {useAuth} from "../auth/useAuth.ts";
 import {ApiValidationError} from "../api/auth.ts";
+import {ROUTES} from "../ROUTES.ts";
 
 
 type RegisterFieldErrors = {
@@ -75,7 +76,7 @@ export default function RegisterPage() {
 
         try {
             await register({username: form.username, password: form.password});
-            navigate("/");
+            navigate(ROUTES.LOGIN);
         } catch (err) {
             if (err instanceof ApiValidationError) {
                 const errors = err.fieldErrors;
@@ -88,7 +89,7 @@ export default function RegisterPage() {
                     ),
                 }))
             } else if (err instanceof Error) {
-                console.log("HIIII")
+                console.log(err);
             }
         }
     }
@@ -96,7 +97,7 @@ export default function RegisterPage() {
     // on load
     useEffect(() => {
         if (isAuth) {
-            navigate("/");
+            navigate(ROUTES.HOME);
         }
     }, [isAuth, navigate]);
 

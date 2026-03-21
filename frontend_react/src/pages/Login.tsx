@@ -1,9 +1,10 @@
-import {Link} from "react-router-dom";
+import {Link, useNavigate} from "react-router-dom";
 import React, {useState} from "react";
 import MainButton from "../components/MainButton";
-import FormInput from "../components/FormInput.tsx";
+import FormInput from "../components/FormInput";
 import {useAuth} from "../auth/useAuth.ts";
 import {ApiValidationError} from "../api/auth.ts";
+import {ROUTES} from "../ROUTES.ts";
 
 
 type LoginFieldErrors = {
@@ -14,6 +15,7 @@ type LoginFieldErrors = {
 
 export default function LoginPage() {
     const {login} = useAuth();
+    const navigate = useNavigate();
 
     const [form, setForm] = useState({
         username: "",
@@ -56,10 +58,10 @@ export default function LoginPage() {
 
         try {
             await login({username: form.username, password: form.password})
+            navigate(ROUTES.HOME, {replace: true});
         } catch (err) {
             if (err instanceof ApiValidationError) {
                 const errors = err.fieldErrors;
-                console.log(errors)
                 setErrMessage(errors);
                 // fields that have an error, mark as invalid
                 setValid((prevState) => ({
