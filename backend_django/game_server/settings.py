@@ -39,9 +39,11 @@ INSTALLED_APPS = [
 	# Third party apps
 	'rest_framework',
 	'corsheaders',
+	'channels',
 	
 	# Project apps
-	'player.apps.PlayerConfig'
+	'player.apps.PlayerConfig',
+	'game.apps.GameConfig'
 ]
 
 MIDDLEWARE = [
@@ -66,6 +68,12 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+}
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    }
 }
 
 ROOT_URLCONF = 'game_server.urls'
