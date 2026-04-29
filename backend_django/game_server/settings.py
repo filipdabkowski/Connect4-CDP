@@ -24,11 +24,13 @@ SECRET_KEY = 'django-insecure-1n9&0wi#9cf!s506y0a!^s&_07wqq#ui07rp+m_(%)fs#k9agk
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', 'localhost:8000']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 # Application definition
 
 INSTALLED_APPS = [
+	'daphne',
+	
 	'django.contrib.admin',
 	'django.contrib.auth',
 	'django.contrib.contenttypes',
@@ -42,8 +44,8 @@ INSTALLED_APPS = [
 	'channels',
 	
 	# Project apps
-	'player.apps.PlayerConfig',
-	'game.apps.GameConfig'
+	'player',
+	'game'
 ]
 
 MIDDLEWARE = [
@@ -77,6 +79,7 @@ CHANNEL_LAYERS = {
 }
 
 ROOT_URLCONF = 'game_server.urls'
+ASGI_APPLICATION = 'game_server.asgi.application'
 
 TEMPLATES = [
 	{
@@ -136,7 +139,8 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

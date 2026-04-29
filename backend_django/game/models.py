@@ -15,3 +15,10 @@ class Room(models.Model):
 		if not self.code:
 			self.code = uuid.uuid4().hex[:8]
 		super().save(*args, **kwargs)
+
+	@property
+	def status(self):
+		return "ready" if self.player_1 and self.player_2 else "waiting"
+
+	def __str__(self):
+		return f"Room({self.code})"

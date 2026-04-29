@@ -6,9 +6,10 @@
   - [x] Login connected and works (simple)
   - [x] Register connected
   - [x] Error handling
-  - [ ] Logout
+  - [x] Logout
   - [x] Redirect to game and login page (IsAuth)
-- [ ] Manual game room creation (channels & web sockets)
+- [x] Manual game room creation (channels & web sockets)
+  - [ ] Revisit messages on join
 - [ ] Game implementation frontend interface
 - [ ] Game logic implementation backend (move validation ...)
 - [ ] Database expansion - redis for channels & board representation, moves log
