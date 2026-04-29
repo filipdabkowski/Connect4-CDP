@@ -16,6 +16,14 @@ export type LoginResponse = {
     refresh: string;
 };
 
+export type RefreshPayload = {
+    refresh: string;
+};
+
+export type RefreshResponse = {
+    access: string;
+};
+
 export type RegisterPayload = {
     username: string;
     password: string;
@@ -55,6 +63,11 @@ export async function login(payload: LoginPayload): Promise<LoginResponse> {
 
 export async function getMe(): Promise<User> {
     const res = await api.get<User>("player/");
+    return res.data;
+}
+
+export async function refreshAccessToken(payload: RefreshPayload): Promise<RefreshResponse> {
+    const res = await api.post<RefreshResponse>("/auth/refresh", payload);
     return res.data;
 }
 
