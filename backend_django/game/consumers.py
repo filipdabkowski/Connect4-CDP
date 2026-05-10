@@ -1,10 +1,20 @@
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
+from django.db import transaction
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from urllib.parse import parse_qs
 
 from .models import Room
-from .serializers import build_room_event
+from .minimax_bot import (
+	COLUMNS,
+	PLAYER_ONE,
+	PLAYER_TWO,
+	drop_piece,
+	get_opponent_symbol,
+	is_terminal_node,
+	normalize_board,
+)
+from .serializers import build_error_response, build_player_payload, build_room_event
 
 import json
 
@@ -55,9 +65,18 @@ class GameConsumer(AsyncWebsocketConsumer):
 		if not text_data:
 			return
 
-		data = json.loads(text_data)
+		try:
+			data = json.loads(text_data)
+		except json.JSONDecodeError:
+			await self.send_error("Could not read that socket message.")
+			return
+
 		message_type = data.get("type", "room_message")
 		message = data.get("message")
+
+		if message_type == "player_move":
+			await self.handle_player_move(data)
+			return
 
 		await self.channel_layer.group_send(
 			self.room_name,
@@ -83,6 +102,30 @@ class GameConsumer(AsyncWebsocketConsumer):
 			return
 
 		await self.send(text_data=json.dumps(payload))
+
+	async def send_error(self, message):
+		await self.send(text_data=json.dumps(build_error_response(message)))
+
+	async def handle_player_move(self, data):
+		payload = await self.apply_player_move(
+			self.room_code,
+			self.player_id,
+			data.get("column"),
+		)
+		if not payload:
+			return
+
+		if payload["type"] == "room_error":
+			await self.send(text_data=json.dumps(payload))
+			return
+
+		await self.channel_layer.group_send(
+			self.room_name,
+			{
+				"type": "broadcast_payload",
+				"payload": payload,
+			},
+		)
 
 	def get_token(self):
 		query_string = self.scope.get("query_string", b"").decode()
@@ -120,6 +163,61 @@ class GameConsumer(AsyncWebsocketConsumer):
 			room=room,
 			message_type=message_type,
 			message=message,
+		)
+
+	@staticmethod
+	@database_sync_to_async
+	def apply_player_move(code, player_id, column):
+		if not player_id:
+			return build_error_response("You must be signed in to make a move.")
+
+		try:
+			column = int(column)
+		except (TypeError, ValueError):
+			return build_error_response("Select a valid column.")
+
+		if column not in range(COLUMNS):
+			return build_error_response("Selected column is outside the board.")
+
+		try:
+			with transaction.atomic():
+				room = Room.objects.select_for_update().select_related().get(code=code)
+
+				if not room.player_1_id or not room.player_2_id:
+					return build_error_response("Wait for another player before making a move.")
+
+				if room.player_1_id == player_id:
+					player_symbol = PLAYER_ONE
+				elif room.player_2_id == player_id:
+					player_symbol = PLAYER_TWO
+				else:
+					return build_error_response("You are not a player in this room.")
+
+				if room.current_turn != player_symbol:
+					return build_error_response("It is not your turn.")
+
+				board = normalize_board(room.board)
+				if is_terminal_node(board):
+					return build_error_response("This game is already finished.")
+
+				try:
+					room.board = drop_piece(board, column, player_symbol)
+				except ValueError as exc:
+					return build_error_response(str(exc))
+
+				last_move = {
+					"player": build_player_payload(room, player_symbol),
+					"column": column,
+				}
+				room.current_turn = get_opponent_symbol(player_symbol)
+				room.save(update_fields=["board", "current_turn"])
+		except Room.DoesNotExist:
+			return build_error_response("Room does not exist.")
+
+		return build_room_event(
+			room=room,
+			message_type="player_move",
+			last_move=last_move,
 		)
 
 	@staticmethod

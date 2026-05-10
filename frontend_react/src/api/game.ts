@@ -5,13 +5,36 @@ export type CreateRoomPayload = {
 };
 
 export type RoomStatus = "waiting" | "ready";
+export type BoardCell = 0 | 1 | 2;
+export type BoardState = BoardCell[][];
+export type PlayerSymbol = 1 | 2;
+export type PlayerSlot = "player1" | "player2";
+
+export type RoomPlayer = {
+    symbol: PlayerSymbol;
+    slot: PlayerSlot;
+    username: string | null;
+};
+
+export type LastMove = {
+    player: RoomPlayer;
+    column: number;
+};
+
+export type RoomErrorResponse = {
+    type: "room_error";
+    message: string;
+};
 
 export type RoomState = {
-    type: "room_state" | "room_joined" | "room_error";
+    type: "room_state" | "room_joined" | "player_move";
     roomCode: string;
     status: RoomStatus;
     player1: string | null;
     player2: string | null;
+    board: BoardState;
+    currentPlayer: RoomPlayer;
+    lastMove?: LastMove;
     message?: string;
 };
 

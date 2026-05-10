@@ -4,7 +4,7 @@ import Connect4Board from "../components/Connect4Board.tsx";
 import FormInput from "../components/FormInput.tsx";
 import MainButton from "../components/MainButton.tsx";
 import {useAuth} from "../auth/useAuth.ts";
-import {createRoom, joinRoom, leaveRoom, type RoomState} from "../api/game.ts";
+import {createRoom, joinRoom, leaveRoom, type PlayerSymbol, type RoomErrorResponse, type RoomState} from "../api/game.ts";
 import {api} from "../api/client.ts";
 import axios from "axios";
 
@@ -39,6 +39,13 @@ function isRoomState(payload: unknown): payload is RoomState {
     return typeof candidate.roomCode === "string" && typeof candidate.status === "string";
 }
 
+function isRoomError(payload: unknown): payload is RoomErrorResponse {
+    if (!payload || typeof payload !== "object") return false;
+
+    const candidate = payload as {type?: unknown; message?: unknown};
+    return candidate.type === "room_error" && typeof candidate.message === "string";
+}
+
 function buildRoomHeading(roomState: RoomState | null, fallbackUsername?: string) {
     if (!roomState) return "Private Connect 4";
 
@@ -52,6 +59,37 @@ function buildRoomHeading(roomState: RoomState | null, fallbackUsername?: string
     return `${player1} vs ${player2}`;
 }
 
+function getCurrentUserSymbol(roomState: RoomState | null, username?: string): PlayerSymbol | null {
+    if (!roomState || !username) return null;
+
+    if (roomState.player1 === username) return 1;
+    if (roomState.player2 === username) return 2;
+    return null;
+}
+
+function getTurnMessage(roomState: RoomState, username?: string) {
+    if (roomState.status !== "ready") {
+        return "Waiting for another player.";
+    }
+
+    if (roomState.currentPlayer.username === username) {
+        return "Your move.";
+    }
+
+    return `${roomState.currentPlayer.username ?? "Opponent"}'s move.`;
+}
+
+function getRoomStatusMessage(roomState: RoomState, username?: string) {
+    const turnMessage = getTurnMessage(roomState, username);
+
+    if (roomState.type === "player_move" && roomState.lastMove) {
+        const playerName = roomState.lastMove.player.username ?? "A player";
+        return `${playerName} played column ${roomState.lastMove.column + 1}. ${turnMessage}`;
+    }
+
+    return turnMessage;
+}
+
 export default function HomePage() {
     const {user, logout} = useAuth();
     const socketRef = useRef<WebSocket | null>(null);
@@ -63,15 +101,14 @@ export default function HomePage() {
     const [roomPhase, setRoomPhase] = useState<RoomPhase>("idle");
     const [roomError, setRoomError] = useState<string | null>(null);
     const [statusMessage, setStatusMessage] = useState("No room joined yet.");
+    const [movePending, setMovePending] = useState(false);
 
     function applyRoomState(nextRoomState: RoomState) {
         setRoomState(nextRoomState);
         setActiveRoomCode(nextRoomState.roomCode);
-        setStatusMessage(
-            nextRoomState.status === "ready"
-                ? "Both players are in the room."
-                : "Waiting for another player."
-        );
+        setRoomError(null);
+        setMovePending(false);
+        setStatusMessage(getRoomStatusMessage(nextRoomState, user?.username));
     }
 
     function disconnectSocket() {
@@ -109,8 +146,13 @@ export default function HomePage() {
                 if (isRoomState(payload)) {
                     setRoomPhase("connected");
                     applyRoomState(payload);
+                } else if (isRoomError(payload)) {
+                    setMovePending(false);
+                    setRoomError(payload.message);
+                    setStatusMessage(payload.message);
                 }
             } catch {
+                setMovePending(false);
                 setStatusMessage("Connected to room. Listening for game updates.");
             }
         };
@@ -120,6 +162,7 @@ export default function HomePage() {
 
             setRoomPhase("error");
             setRoomError("The room connection ran into an error.");
+            setMovePending(false);
             setStatusMessage("Room connection failed.");
         };
 
@@ -141,6 +184,7 @@ export default function HomePage() {
                     ? "The room connection closed. Rejoin to continue playing."
                     : "Could not connect to that room. Try another code or create a new one."
             );
+            setMovePending(false);
             setStatusMessage(opened ? "Connection lost." : "Room unavailable.");
         };
     }
@@ -169,6 +213,7 @@ export default function HomePage() {
             setRoomPhase("error");
             setRoomError(getApiErrorMessage(error, "Could not join that room."));
             setRoomState(null);
+            setMovePending(false);
             setStatusMessage("Room join failed.");
         }
     }
@@ -188,8 +233,41 @@ export default function HomePage() {
         } catch {
             setRoomPhase("error");
             setRoomError("Could not create a room right now. Try another code or retry in a moment.");
+            setMovePending(false);
             setStatusMessage("Room creation failed.");
         }
+    }
+
+    function handleBoardColumnSelect(column: number) {
+        const socket = socketRef.current;
+        const playerSymbol = getCurrentUserSymbol(roomState, user?.username);
+
+        if (!roomState || !playerSymbol) {
+            setStatusMessage("Join the room as a player before making a move.");
+            return;
+        }
+
+        if (roomState.currentPlayer.symbol !== playerSymbol) {
+            setStatusMessage(getTurnMessage(roomState, user?.username));
+            return;
+        }
+
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            setRoomError("The room socket is not connected.");
+            setStatusMessage("Reconnect before making a move.");
+            return;
+        }
+
+        setMovePending(true);
+        setStatusMessage(`Move sent for column ${column + 1}. Waiting for server.`);
+        socket.send(JSON.stringify({
+            type: "player_move",
+            player: {
+                username: user?.username ?? null,
+                symbol: playerSymbol,
+            },
+            column,
+        }));
     }
 
     async function handleLeaveRoom() {
@@ -205,6 +283,7 @@ export default function HomePage() {
             setRoomState(null);
             setRoomPhase("idle");
             setRoomError(null);
+            setMovePending(false);
             setStatusMessage("No room joined yet.");
         }
     }
@@ -217,8 +296,15 @@ export default function HomePage() {
 
     const isInRoom = !!activeRoomCode;
     const isBusy = roomPhase === "creating" || roomPhase === "connecting";
+    const playerSymbol = getCurrentUserSymbol(roomState, user?.username);
+    const isCurrentTurn = !!playerSymbol && roomState?.currentPlayer.symbol === playerSymbol;
+    const canSendMove = isInRoom && roomPhase === "connected" && roomState?.status === "ready" && isCurrentTurn && !movePending;
     const roomStatusLabel =
-        roomPhase === "connected"
+        movePending
+            ? "Move Sent"
+            : roomPhase === "connected" && roomState?.status === "ready"
+                ? isCurrentTurn ? "Your Move" : "Opponent Turn"
+                : roomPhase === "connected"
             ? "Room Live"
             : roomPhase === "connecting"
                 ? "Connecting"
@@ -229,6 +315,7 @@ export default function HomePage() {
                         : "Lobby";
 
     const heading = buildRoomHeading(roomState, user?.username);
+    const boardCaption = roomState ? getRoomStatusMessage(roomState, user?.username) : undefined;
 
     const description = isInRoom
         ? "Share the room code, keep this board open, and the same screen becomes your live match UI once both players connect."
@@ -326,6 +413,13 @@ export default function HomePage() {
                             <Connect4Board
                                 active={isInRoom}
                                 statusLabel={roomStatusLabel}
+                                board={roomState?.board}
+                                boardCaption={boardCaption}
+                                canMove={canSendMove}
+                                currentPlayerSymbol={roomState?.currentPlayer.symbol}
+                                playerSymbol={playerSymbol}
+                                movePending={movePending}
+                                onColumnSelect={handleBoardColumnSelect}
                             />
                         </section>
                     </div>
