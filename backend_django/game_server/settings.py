@@ -10,21 +10,59 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = BASE_DIR.parent
+
+
+def load_env_file(path):
+	if not path.exists():
+		return
+
+	for line in path.read_text().splitlines():
+		line = line.strip()
+		if not line or line.startswith("#") or "=" not in line:
+			continue
+
+		key, value = line.split("=", 1)
+		os.environ.setdefault(key.strip(), value.strip().strip("'\""))
+
+
+def env(name, default=None):
+	return os.environ.get(name, default)
+
+
+def env_bool(name, default=False):
+	value = env(name)
+	if value is None:
+		return default
+
+	return value.lower() in {"1", "true", "yes", "on"}
+
+
+def env_list(name, default=None):
+	value = env(name)
+	if value is None:
+		return default or []
+
+	return [item.strip() for item in value.split(",") if item.strip()]
+
+
+load_env_file(PROJECT_ROOT / ".env")
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-1n9&0wi#9cf!s506y0a!^s&_07wqq#ui07rp+m_(%)fs#k9agk'
+SECRET_KEY = env("DJANGO_SECRET_KEY", "change-me-before-production")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env_bool("DJANGO_DEBUG", default=False)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
 
 # Application definition
 
@@ -59,10 +97,13 @@ MIDDLEWARE = [
 	'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+CORS_ALLOWED_ORIGINS = env_list(
+	"DJANGO_CORS_ALLOWED_ORIGINS",
+	[
+		"http://localhost:5173",
+		"http://127.0.0.1:5173",
+	],
+)
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -73,9 +114,17 @@ REST_FRAMEWORK = {
 }
 
 CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer",
-    }
+	"default": {
+		"BACKEND": "channels_redis.core.RedisChannelLayer",
+		"CONFIG": {
+			"hosts": [
+				env(
+					"CHANNEL_REDIS_URL",
+					f"redis://{env('REDIS_HOST', 'localhost')}:{env('REDIS_PORT', '6379')}/0",
+				)
+			],
+		},
+	}
 }
 
 ROOT_URLCONF = 'game_server.urls'
@@ -102,8 +151,12 @@ WSGI_APPLICATION = 'game_server.wsgi.application'
 
 DATABASES = {
 	'default': {
-		'ENGINE': 'django.db.backends.sqlite3',
-		'NAME': BASE_DIR / 'db.sqlite3',
+		'ENGINE': 'django.db.backends.postgresql',
+		'NAME': env('POSTGRES_DB', 'connect4'),
+		'USER': env('POSTGRES_USER', 'connect4'),
+		'PASSWORD': env('POSTGRES_PASSWORD', ''),
+		'HOST': env('POSTGRES_HOST', 'localhost'),
+		'PORT': env('POSTGRES_PORT', '5432'),
 	}
 }
 
