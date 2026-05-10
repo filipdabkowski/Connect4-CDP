@@ -68,6 +68,18 @@ function getCurrentUserSymbol(roomState: RoomState | null, username?: string): P
 }
 
 function getTurnMessage(roomState: RoomState, username?: string) {
+    if (roomState.status === "finished") {
+        if (roomState.gameResult?.isDraw) {
+            return "Game over. Draw.";
+        }
+
+        if (roomState.gameResult?.winner?.username === username) {
+            return "Game over. You won.";
+        }
+
+        return `Game over. ${roomState.gameResult?.winner?.username ?? "Opponent"} won.`;
+    }
+
     if (roomState.status !== "ready") {
         return "Waiting for another player.";
     }
@@ -81,6 +93,10 @@ function getTurnMessage(roomState: RoomState, username?: string) {
 
 function getRoomStatusMessage(roomState: RoomState, username?: string) {
     const turnMessage = getTurnMessage(roomState, username);
+
+    if (roomState.type === "game_over") {
+        return roomState.message ? `${roomState.message} ${turnMessage}` : turnMessage;
+    }
 
     if (roomState.type === "player_move" && roomState.lastMove) {
         const playerName = roomState.lastMove.player.username ?? "A player";
@@ -302,6 +318,8 @@ export default function HomePage() {
     const roomStatusLabel =
         movePending
             ? "Move Sent"
+            : roomState?.status === "finished"
+                ? "Game Over"
             : roomPhase === "connected" && roomState?.status === "ready"
                 ? isCurrentTurn ? "Your Move" : "Opponent Turn"
                 : roomPhase === "connected"

@@ -24,6 +24,41 @@ def build_player_payload(room: Room, symbol: int):
 	}
 
 
+def build_symbol_payload(symbol: int, username: str | None):
+	return {
+		"symbol": PLAYER_TWO if symbol == PLAYER_TWO else PLAYER_ONE,
+		"slot": "player2" if symbol == PLAYER_TWO else "player1",
+		"username": username,
+	}
+
+
+def build_game_result(room: Room):
+	if room.status != Room.STATUS_FINISHED:
+		return None
+
+	if not room.winner_id or not room.winner_symbol:
+		return {
+			"winner": None,
+			"isDraw": True,
+		}
+
+	winner_username = None
+	if room.winner:
+		winner_username = room.winner.user.username
+	elif room.winner_symbol == PLAYER_ONE and room.player_1:
+		winner_username = room.player_1.user.username
+	elif room.winner_symbol == PLAYER_TWO and room.player_2:
+		winner_username = room.player_2.user.username
+
+	return {
+		"winner": build_symbol_payload(
+			room.winner_symbol,
+			winner_username,
+		),
+		"isDraw": False,
+	}
+
+
 def build_room_event(
 	*,
 	room: Room,
@@ -39,6 +74,7 @@ def build_room_event(
 		"player2": room.player_2.user.username if room.player_2 else None,
 		"board": room.board or create_empty_board(),
 		"currentPlayer": build_player_payload(room, room.current_turn),
+		"gameResult": build_game_result(room),
 	}
 
 	if message:

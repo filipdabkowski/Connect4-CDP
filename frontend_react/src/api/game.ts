@@ -4,7 +4,7 @@ export type CreateRoomPayload = {
     code?: string;
 };
 
-export type RoomStatus = "waiting" | "ready";
+export type RoomStatus = "waiting" | "ready" | "finished";
 export type BoardCell = 0 | 1 | 2;
 export type BoardState = BoardCell[][];
 export type PlayerSymbol = 1 | 2;
@@ -21,19 +21,25 @@ export type LastMove = {
     column: number;
 };
 
+export type GameResult = {
+    winner: RoomPlayer | null;
+    isDraw: boolean;
+};
+
 export type RoomErrorResponse = {
     type: "room_error";
     message: string;
 };
 
 export type RoomState = {
-    type: "room_state" | "room_joined" | "player_move";
+    type: "room_state" | "room_joined" | "player_move" | "game_over";
     roomCode: string;
     status: RoomStatus;
     player1: string | null;
     player2: string | null;
     board: BoardState;
     currentPlayer: RoomPlayer;
+    gameResult: GameResult | null;
     lastMove?: LastMove;
     message?: string;
 };

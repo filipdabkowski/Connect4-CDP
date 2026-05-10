@@ -38,7 +38,7 @@ def broadcast_room_state(room):
 
 
 def get_room_with_players(room_id):
-	return Room.objects.select_related("player_1__user", "player_2__user").get(pk=room_id)
+	return Room.objects.select_related("player_1__user", "player_2__user", "winner__user").get(pk=room_id)
 
 
 def remove_player_from_room(room, player_id):
@@ -55,6 +55,9 @@ def remove_player_from_room(room, player_id):
 	if not update_fields:
 		return False
 
+	if room.sync_status():
+		update_fields.append("game_status")
+
 	room.save(update_fields=update_fields)
 	return True
 
@@ -65,12 +68,18 @@ def add_player_to_room(room, player):
 
 	if not room.player_1_id:
 		room.player_1 = player
-		room.save(update_fields=["player_1"])
+		update_fields = ["player_1"]
+		if room.sync_status():
+			update_fields.append("game_status")
+		room.save(update_fields=update_fields)
 		return True
 
 	if not room.player_2_id:
 		room.player_2 = player
-		room.save(update_fields=["player_2"])
+		update_fields = ["player_2"]
+		if room.sync_status():
+			update_fields.append("game_status")
+		room.save(update_fields=update_fields)
 		return True
 
 	return False
@@ -127,11 +136,16 @@ class JoinRoomView(APIView):
 			if already_in_room:
 				message_type = "room_joined"
 				should_broadcast = False
+			elif room.status == Room.STATUS_FINISHED:
+				message_type = "room_error"
+				should_broadcast = False
 			else:
 				should_broadcast = add_player_to_room(room, player)
 				message_type = "room_joined" if should_broadcast else "room_error"
 			response_status = status.HTTP_200_OK if message_type == "room_joined" else status.HTTP_400_BAD_REQUEST
-			response_message = None if message_type == "room_joined" else "Room is full."
+			response_message = None
+			if message_type == "room_error":
+				response_message = "This game is already finished." if room.status == Room.STATUS_FINISHED else "Room is full."
 
 		room = get_room_with_players(room_id)
 
