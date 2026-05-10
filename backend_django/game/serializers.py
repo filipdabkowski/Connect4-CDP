@@ -1,36 +1,25 @@
 from .models import Room
 
 
-def serialize_room(room: Room):
+def build_error_response(message: str):
 	return {
-		"code": room.code,
-		"player1": room.player_1.user.username if room.player_1 else None,
-		"player2": room.player_2.user.username if room.player_2 else None,
-		"players": [
-			username
-			for username in [
-				room.player_1.user.username if room.player_1 else None,
-				room.player_2.user.username if room.player_2 else None,
-			]
-			if username
-		],
-		"createdAt": room.created_at.isoformat() if room.created_at else None,
+		"type": "room_error",
+		"message": message,
 	}
 
 
-def build_room_event(*, room: Room, message_type: str, text: str, actor: str):
-	return {
+def build_room_event(*, room: Room, message_type: str, message: str | None = None):
+	payload = {
 		"type": message_type,
-		"room": room.code,
-		"message": {
-			"kind": "system",
-			"actor": actor,
-			"text": text,
-		},
+		"roomCode": room.code,
+		"status": room.status,
 	}
 
+	if message:
+		payload["message"] = message
 
-def build_room_response(*, room: Room, message_type: str, text: str, actor: str):
-	payload = build_room_event(room=room, message_type=message_type, text=text, actor=actor)
-	payload["roomCode"] = room.code
 	return payload
+
+
+def build_room_response(*, room: Room, message_type: str, message: str | None = None):
+	return build_room_event(room=room, message_type=message_type, message=message)

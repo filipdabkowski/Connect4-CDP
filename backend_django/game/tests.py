@@ -1,7 +1,10 @@
 from django.contrib.auth import get_user_model
+from django.test import TransactionTestCase
+from asgiref.sync import async_to_sync
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from game.consumers import GameConsumer
 from game.minimax_bot import create_empty_board, drop_piece, suggest_bot_move
 from game.models import Room
 
@@ -20,7 +23,8 @@ class RoomApiTests(APITestCase):
 
 		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 		self.assertEqual(response.data["type"], "room_state")
-		self.assertEqual(response.data["room"]["code"], "ALPHA123")
+		self.assertEqual(response.data["roomCode"], "ALPHA123")
+		self.assertEqual(response.data["status"], "waiting")
 		self.assertTrue(Room.objects.filter(code="ALPHA123", player_1__user=self.host_user).exists())
 
 	def test_join_room_assigns_second_player(self):
@@ -32,7 +36,8 @@ class RoomApiTests(APITestCase):
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
 		room.refresh_from_db()
 		self.assertEqual(response.data["type"], "room_joined")
-		self.assertEqual(response.data["room"], "BETA123")
+		self.assertEqual(response.data["roomCode"], "BETA123")
+		self.assertEqual(response.data["status"], "ready")
 		self.assertEqual(room.player_2, self.guest_user.player)
 
 	def test_join_room_rejects_full_room(self):
@@ -43,6 +48,22 @@ class RoomApiTests(APITestCase):
 
 		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 		self.assertEqual(response.data["type"], "room_error")
+		self.assertEqual(response.data["roomCode"], "GAMMA123")
+
+
+class RoomConsumerTests(TransactionTestCase):
+	def setUp(self):
+		user_model = get_user_model()
+		self.host_user = user_model.objects.create_user(username="socket-host", password="password123")
+
+	def test_socket_room_event_is_built_inside_db_wrapper(self):
+		Room.objects.create(code="DELTA123", player_1=self.host_user.player)
+
+		payload = async_to_sync(GameConsumer.build_room_event)("DELTA123", "room_state")
+
+		self.assertEqual(payload["type"], "room_state")
+		self.assertEqual(payload["roomCode"], "DELTA123")
+		self.assertEqual(payload["status"], "waiting")
 
 
 class MinimaxBotTests(APITestCase):
@@ -102,6 +123,7 @@ class MinimaxBotTests(APITestCase):
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
 		self.assertEqual(response.data["type"], "bot_move_suggestion")
 		self.assertEqual(response.data["column"], 3)
+		self.assertNotIn("message", response.data)
 
 	def test_bot_move_suggestion_endpoint_rejects_invalid_board(self):
 		self.client.force_authenticate(user=self.user)
@@ -114,3 +136,4 @@ class MinimaxBotTests(APITestCase):
 
 		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 		self.assertEqual(response.data["type"], "bot_move_error")
+		self.assertEqual(response.data["message"], "Board must contain 6 rows.")

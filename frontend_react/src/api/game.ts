@@ -6,7 +6,8 @@ export type CreateRoomPayload = {
 
 export type CreateRoomResponse = {
     roomCode: string;
-    symbol: string;
+    status: "waiting" | "ready";
+    message?: string;
 };
 
 export async function createRoom(payload: CreateRoomPayload): Promise<CreateRoomResponse> {
