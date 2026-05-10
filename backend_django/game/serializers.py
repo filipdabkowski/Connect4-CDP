@@ -13,6 +13,8 @@ def build_room_event(*, room: Room, message_type: str, message: str | None = Non
 		"type": message_type,
 		"roomCode": room.code,
 		"status": room.status,
+		"player1": room.player_1.user.username if room.player_1 else None,
+		"player2": room.player_2.user.username if room.player_2 else None,
 	}
 
 	if message:

@@ -4,8 +4,9 @@ import Connect4Board from "../components/Connect4Board.tsx";
 import FormInput from "../components/FormInput.tsx";
 import MainButton from "../components/MainButton.tsx";
 import {useAuth} from "../auth/useAuth.ts";
-import {createRoom} from "../api/game.ts";
+import {createRoom, joinRoom, leaveRoom, type RoomState} from "../api/game.ts";
 import {api} from "../api/client.ts";
+import axios from "axios";
 
 type RoomPhase = "idle" | "creating" | "connecting" | "connected" | "error";
 
@@ -17,8 +18,38 @@ function buildGameSocketUrl(roomCode: string) {
     const apiBaseUrl = api.defaults.baseURL ?? "http://localhost:8000/api/";
     const backendUrl = new URL(apiBaseUrl);
     const protocol = backendUrl.protocol === "https:" ? "wss:" : "ws:";
+    const token = localStorage.getItem("access_token");
+    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : "";
 
-    return `${protocol}//${backendUrl.host}/ws/game/${roomCode}/`;
+    return `${protocol}//${backendUrl.host}/ws/game/${roomCode}/${tokenQuery}`;
+}
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+    if (axios.isAxiosError<{message?: string}>(error)) {
+        return error.response?.data?.message ?? fallback;
+    }
+
+    return fallback;
+}
+
+function isRoomState(payload: unknown): payload is RoomState {
+    if (!payload || typeof payload !== "object") return false;
+
+    const candidate = payload as Partial<RoomState>;
+    return typeof candidate.roomCode === "string" && typeof candidate.status === "string";
+}
+
+function buildRoomHeading(roomState: RoomState | null, fallbackUsername?: string) {
+    if (!roomState) return "Private Connect 4";
+
+    const player1 = roomState.player1 ?? "Waiting...";
+    const player2 = roomState.player2 ?? "Waiting...";
+
+    if (!roomState.player1 && !roomState.player2 && fallbackUsername) {
+        return `${fallbackUsername} vs Waiting...`;
+    }
+
+    return `${player1} vs ${player2}`;
 }
 
 export default function HomePage() {
@@ -28,9 +59,20 @@ export default function HomePage() {
 
     const [roomInput, setRoomInput] = useState("");
     const [activeRoomCode, setActiveRoomCode] = useState<string | null>(null);
+    const [roomState, setRoomState] = useState<RoomState | null>(null);
     const [roomPhase, setRoomPhase] = useState<RoomPhase>("idle");
     const [roomError, setRoomError] = useState<string | null>(null);
     const [statusMessage, setStatusMessage] = useState("No room joined yet.");
+
+    function applyRoomState(nextRoomState: RoomState) {
+        setRoomState(nextRoomState);
+        setActiveRoomCode(nextRoomState.roomCode);
+        setStatusMessage(
+            nextRoomState.status === "ready"
+                ? "Both players are in the room."
+                : "Waiting for another player."
+        );
+    }
 
     function disconnectSocket() {
         if (!socketRef.current) return;
@@ -56,17 +98,17 @@ export default function HomePage() {
 
             opened = true;
             setRoomPhase("connected");
-            setStatusMessage("Connected. Waiting for the second player to join the room.");
+            setStatusMessage("Connected.");
         };
 
         socket.onmessage = (event) => {
             if (socketRef.current !== socket) return;
 
             try {
-                const payload = JSON.parse(event.data) as {type?: string};
-                if (payload.type === "room_state") {
+                const payload = JSON.parse(event.data) as unknown;
+                if (isRoomState(payload)) {
                     setRoomPhase("connected");
-                    setStatusMessage("Room synchronized. Your private match is ready.");
+                    applyRoomState(payload);
                 }
             } catch {
                 setStatusMessage("Connected to room. Listening for game updates.");
@@ -113,9 +155,22 @@ export default function HomePage() {
             return;
         }
 
-        setActiveRoomCode(nextCode);
-        setRoomInput(nextCode);
-        connectToRoom(nextCode);
+        try {
+            setRoomPhase("connecting");
+            setRoomError(null);
+            setStatusMessage(`Joining room ${nextCode}...`);
+
+            const response = await joinRoom(nextCode);
+            applyRoomState(response);
+            setRoomInput(response.roomCode);
+            connectToRoom(response.roomCode);
+        } catch (error) {
+            setActiveRoomCode(null);
+            setRoomPhase("error");
+            setRoomError(getApiErrorMessage(error, "Could not join that room."));
+            setRoomState(null);
+            setStatusMessage("Room join failed.");
+        }
     }
 
     async function handleCreateRoom() {
@@ -127,7 +182,7 @@ export default function HomePage() {
             setStatusMessage("Creating your private room...");
 
             const response = await createRoom({code: preferredCode || undefined});
-            setActiveRoomCode(response.roomCode);
+            applyRoomState(response);
             setRoomInput(response.roomCode);
             connectToRoom(response.roomCode);
         } catch {
@@ -137,12 +192,21 @@ export default function HomePage() {
         }
     }
 
-    function handleLeaveRoom() {
-        disconnectSocket();
-        setActiveRoomCode(null);
-        setRoomPhase("idle");
-        setRoomError(null);
-        setStatusMessage("No room joined yet.");
+    async function handleLeaveRoom() {
+        const roomCode = activeRoomCode;
+
+        try {
+            if (roomCode) {
+                await leaveRoom(roomCode);
+            }
+        } finally {
+            disconnectSocket();
+            setActiveRoomCode(null);
+            setRoomState(null);
+            setRoomPhase("idle");
+            setRoomError(null);
+            setStatusMessage("No room joined yet.");
+        }
     }
 
     useEffect(() => {
@@ -164,9 +228,7 @@ export default function HomePage() {
                         ? "Reconnect Needed"
                         : "Lobby";
 
-    const heading = isInRoom
-        ? `${user?.username ?? "Player 1"} vs Waiting for player 2`
-        : "Private Connect 4, one room at a time";
+    const heading = buildRoomHeading(roomState, user?.username);
 
     const description = isInRoom
         ? "Share the room code, keep this board open, and the same screen becomes your live match UI once both players connect."
@@ -250,7 +312,7 @@ export default function HomePage() {
                                     {isInRoom && (
                                         <button
                                             type="button"
-                                            onClick={handleLeaveRoom}
+                                            onClick={() => void handleLeaveRoom()}
                                             className="rounded-full border border-white/10 px-3 py-1 text-slate-200 transition hover:border-cyan-300/30 hover:text-white"
                                         >
                                             Leave room
