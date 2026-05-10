@@ -6,10 +6,21 @@ from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 
 from .models import Room
+from .minimax_bot import suggest_bot_move
 from .serializers import build_room_response
 from player.models import Player
 
 import json
+
+
+def parse_bool(value):
+	if isinstance(value, bool):
+		return value
+
+	if isinstance(value, str):
+		return value.lower() in {"1", "true", "yes", "on"}
+
+	return bool(value)
 
 
 class CreateRoomView(APIView):
@@ -104,5 +115,46 @@ class JoinRoomView(APIView):
 				text="Player joined the room.",
 				actor=request.user.username,
 			),
+			status=status.HTTP_200_OK,
+		)
+
+
+class BotMoveSuggestionView(APIView):
+	permission_classes = [IsAuthenticated]
+
+	def post(self, request):
+		try:
+			suggestion = suggest_bot_move(
+				board=request.data.get("board"),
+				bot_symbol=request.data.get("botSymbol", 2),
+				depth=request.data.get("depth", 4),
+				use_multiprocessing=parse_bool(request.data.get("parallel", False)),
+				max_workers=request.data.get("maxWorkers"),
+			)
+		except ValueError as exc:
+			return Response(
+				{
+					"type": "bot_move_error",
+					"message": {
+						"kind": "system",
+						"actor": "minimax_bot",
+						"text": str(exc),
+					},
+				},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		return Response(
+			{
+				"type": "bot_move_suggestion",
+				"column": suggestion.column,
+				"score": suggestion.score,
+				"validMoves": suggestion.valid_moves,
+				"message": {
+					"kind": "system",
+					"actor": "minimax_bot",
+					"text": f"Suggested column {suggestion.column}.",
+				},
+			},
 			status=status.HTTP_200_OK,
 		)

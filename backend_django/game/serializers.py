@@ -21,6 +21,7 @@ def serialize_room(room: Room):
 def build_room_event(*, room: Room, message_type: str, text: str, actor: str):
 	return {
 		"type": message_type,
+		"room": room.code,
 		"message": {
 			"kind": "system",
 			"actor": actor,
