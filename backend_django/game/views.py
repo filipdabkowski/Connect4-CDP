@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404
 
 from .models import Room
 from .minimax_bot import suggest_bot_move
-from .serializers import build_error_response, build_room_response
+from .serializers import RoomErrorSerializer, RoomSerializer
 from player.models import Player
 
 
@@ -98,15 +98,14 @@ class CreateRoomView(APIView):
 				room = Room.objects.create(code=room_code or "", player_1=player)
 		except IntegrityError:
 			return Response(
-				build_error_response("Room code already exists."),
+				RoomErrorSerializer(
+					{"message": "Room code already exists."}
+				).data,
 				status=status.HTTP_400_BAD_REQUEST,
 			)
 
 		return Response(
-			build_room_response(
-				room=room,
-				message_type="room_state",
-			),
+			RoomSerializer(room, context={"message_type": "room_state"}).data,
 			status=status.HTTP_201_CREATED,
 		)
 
@@ -121,7 +120,9 @@ class JoinRoomView(APIView):
 
 		if not room_code:
 			return Response(
-				build_error_response("Room code is required."),
+				RoomErrorSerializer(
+					{"message": "Room code is required."}
+				).data,
 				status=status.HTTP_400_BAD_REQUEST,
 			)
 
@@ -153,11 +154,13 @@ class JoinRoomView(APIView):
 			broadcast_room_state(room)
 
 		return Response(
-			build_room_response(
-				room=room,
-				message_type=message_type,
-				message=response_message,
-			),
+			RoomSerializer(
+				room,
+				context={
+					"message_type": message_type,
+					"message": response_message,
+				},
+			).data,
 			status=response_status,
 		)
 
@@ -183,10 +186,7 @@ class LeaveRoomView(APIView):
 			broadcast_room_state(room)
 
 		return Response(
-			build_room_response(
-				room=room,
-				message_type="room_state",
-			),
+			RoomSerializer(room, context={"message_type": "room_state"}).data,
 			status=status.HTTP_200_OK,
 		)
 

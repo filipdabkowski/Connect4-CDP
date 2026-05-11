@@ -16,7 +16,7 @@ from .minimax_bot import (
 	has_winning_line,
 	normalize_board,
 )
-from .serializers import build_error_response, build_player_payload, build_room_event
+from .serializers import RoomErrorSerializer, RoomPlayerSerializer, RoomSerializer
 from player.models import Player
 
 import json
@@ -100,14 +100,16 @@ class GameConsumer(AsyncWebsocketConsumer):
 		await self.send(text_data=json.dumps(event["payload"]))
 
 	async def send_room_event(self, message_type, message=None):
-		payload = await self.build_room_event(self.room_code, message_type, message)
+		payload = await self.serialize_room_event(self.room_code, message_type, message)
 		if not payload:
 			return
 
 		await self.send(text_data=json.dumps(payload))
 
 	async def send_error(self, message):
-		await self.send(text_data=json.dumps(build_error_response(message)))
+		await self.send(text_data=json.dumps(RoomErrorSerializer(
+			{"message": message}
+		).data))
 
 	async def handle_player_move(self, data):
 		payload = await self.apply_player_move(
@@ -156,31 +158,39 @@ class GameConsumer(AsyncWebsocketConsumer):
 
 	@staticmethod
 	@database_sync_to_async
-	def build_room_event(code, message_type, message=None):
+	def serialize_room_event(code, message_type, message=None):
 		try:
 			room = Room.objects.select_related("player_1__user", "player_2__user", "winner__user").get(code=code)
 		except Room.DoesNotExist:
 			return None
 
-		return build_room_event(
-			room=room,
-			message_type=message_type,
-			message=message,
-		)
+		return RoomSerializer(
+			room,
+			context={
+				"message_type": message_type,
+				"message": message,
+			},
+		).data
 
 	@staticmethod
 	@database_sync_to_async
 	def apply_player_move(code, player_id, column):
 		if not player_id:
-			return build_error_response("You must be signed in to make a move.")
+			return RoomErrorSerializer(
+				{"message": "You must be signed in to make a move."}
+			).data
 
 		try:
 			column = int(column)
 		except (TypeError, ValueError):
-			return build_error_response("Select a valid column.")
+			return RoomErrorSerializer(
+				{"message": "Select a valid column."}
+			).data
 
 		if column not in range(COLUMNS):
-			return build_error_response("Selected column is outside the board.")
+			return RoomErrorSerializer(
+				{"message": "Selected column is outside the board."}
+			).data
 
 		try:
 			with transaction.atomic():
@@ -188,31 +198,41 @@ class GameConsumer(AsyncWebsocketConsumer):
 
 				status_changed = room.sync_status()
 				if room.status == Room.STATUS_FINISHED:
-					return build_error_response("This game is already finished.")
+					return RoomErrorSerializer(
+						{"message": "This game is already finished."}
+					).data
 
 				if room.status != Room.STATUS_READY:
-					return build_error_response("Wait for another player before making a move.")
+					return RoomErrorSerializer(
+						{"message": "Wait for another player before making a move."}
+					).data
 
 				if room.player_1_id == player_id:
 					player_symbol = PLAYER_ONE
 				elif room.player_2_id == player_id:
 					player_symbol = PLAYER_TWO
 				else:
-					return build_error_response("You are not a player in this room.")
+					return RoomErrorSerializer(
+						{"message": "You are not a player in this room."}
+					).data
 
 				if room.current_turn != player_symbol:
-					return build_error_response("It is not your turn.")
+					return RoomErrorSerializer(
+						{"message": "It is not your turn."}
+					).data
 
 				board = normalize_board(room.board)
 
 				try:
 					next_board = drop_piece(board, column, player_symbol)
 				except ValueError as exc:
-					return build_error_response(str(exc))
+					return RoomErrorSerializer(
+						{"message": str(exc)}
+					).data
 
 				room.board = next_board
 				last_move = {
-					"player": build_player_payload(room, player_symbol),
+					"player": RoomPlayerSerializer.from_room(room, player_symbol),
 					"column": column,
 				}
 				message_type = "player_move"
@@ -246,14 +266,18 @@ class GameConsumer(AsyncWebsocketConsumer):
 
 				room.save(update_fields=update_fields)
 		except Room.DoesNotExist:
-			return build_error_response("Room does not exist.")
+			return RoomErrorSerializer(
+				{"message": "Room does not exist."}
+			).data
 
-		return build_room_event(
-			room=room,
-			message_type=message_type,
-			message=message,
-			last_move=last_move,
-		)
+		return RoomSerializer(
+			room,
+			context={
+				"message_type": message_type,
+				"message": message,
+				"last_move": last_move,
+			},
+		).data
 
 	@staticmethod
 	@database_sync_to_async
@@ -279,7 +303,7 @@ class GameConsumer(AsyncWebsocketConsumer):
 			update_fields.append("game_status")
 
 		room.save(update_fields=update_fields)
-		return build_room_event(room=room, message_type="room_state")
+		return RoomSerializer(room, context={"message_type": "room_state"}).data
 
 
 def update_player_records(room, winner_symbol):
