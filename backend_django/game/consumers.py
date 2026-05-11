@@ -1,8 +1,23 @@
 from channels.generic.websocket import AsyncWebsocketConsumer
-from asgiref.sync import sync_to_async
+from channels.db import database_sync_to_async
+from django.db import transaction
+from django.db.models import F
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from urllib.parse import parse_qs
 
 from .models import Room
-from .serializers import build_room_event
+from .minimax_bot import (
+	COLUMNS,
+	PLAYER_ONE,
+	PLAYER_TWO,
+	drop_piece,
+	get_valid_moves,
+	get_opponent_symbol,
+	has_winning_line,
+	normalize_board,
+)
+from .serializers import build_error_response, build_player_payload, build_room_event
+from player.models import Player
 
 import json
 
@@ -10,35 +25,27 @@ import json
 class GameConsumer(AsyncWebsocketConsumer):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
-		self.room = None
 		self.room_code = None
 		self.room_name = None
+		self.player_id = None
 
 	async def connect(self):
 		self.room_code = self.scope["url_route"]["kwargs"]["room_code"]
 		self.room_name = f"room_{self.room_code}"
+		self.player_id = await self.get_player_id_from_token(self.get_token())
 
-		self.room = await self.get_room(self.room_code)
-		if not self.room:
+		if not await self.room_exists(self.room_code):
 			await self.close()
 			return
 
 		await self.channel_layer.group_add(self.room_name, self.channel_name)
 		await self.accept()
 
-		await self.send_room_event(
-			message_type="room_state",
-			text="Socket connected to room.",
-			actor="system",
-		)
-
 		await self.channel_layer.group_send(
 			self.room_name,
 			{
 				"type": "broadcast_state",
-				"message_type": "room_message",
-				"text": "A player connected to the room.",
-				"actor": "system",
+				"message_type": "room_state",
 			},
 		)
 
@@ -46,48 +53,251 @@ class GameConsumer(AsyncWebsocketConsumer):
 		if self.room_name:
 			await self.channel_layer.group_discard(self.room_name, self.channel_name)
 
+		if self.room_name and self.player_id:
+			payload = await self.remove_player_from_room(self.room_code, self.player_id)
+			if payload:
+				await self.channel_layer.group_send(
+					self.room_name,
+					{
+						"type": "broadcast_payload",
+						"payload": payload,
+					},
+				)
+
 	async def receive(self, text_data=None, bytes_data=None):
 		if not text_data:
 			return
 
-		data = json.loads(text_data)
-		text = data.get("message", "Example room message.")
+		try:
+			data = json.loads(text_data)
+		except json.JSONDecodeError:
+			await self.send_error("Could not read that socket message.")
+			return
+
+		message_type = data.get("type", "room_message")
+		message = data.get("message")
+
+		if message_type == "player_move":
+			await self.handle_player_move(data)
+			return
 
 		await self.channel_layer.group_send(
 			self.room_name,
 			{
 				"type": "broadcast_state",
-				"message_type": "room_message",
-				"text": text,
-				"actor": data.get("actor", "player"),
+				"message_type": message_type,
+				"message": message,
 			},
 		)
 
 	async def broadcast_state(self, event):
 		await self.send_room_event(
 			message_type=event["message_type"],
-			text=event["text"],
-			actor=event["actor"],
+			message=event.get("message"),
 		)
 
-	async def send_room_event(self, message_type, text, actor):
-		room = await self.get_room(self.room_code)
-		if not room:
+	async def broadcast_payload(self, event):
+		await self.send(text_data=json.dumps(event["payload"]))
+
+	async def send_room_event(self, message_type, message=None):
+		payload = await self.build_room_event(self.room_code, message_type, message)
+		if not payload:
 			return
 
-		await self.send(text_data=json.dumps(
-			build_room_event(
-				room=room,
-				message_type=message_type,
-				text=text,
-				actor=actor,
-			)
-		))
+		await self.send(text_data=json.dumps(payload))
+
+	async def send_error(self, message):
+		await self.send(text_data=json.dumps(build_error_response(message)))
+
+	async def handle_player_move(self, data):
+		payload = await self.apply_player_move(
+			self.room_code,
+			self.player_id,
+			data.get("column"),
+		)
+		if not payload:
+			return
+
+		if payload["type"] == "room_error":
+			await self.send(text_data=json.dumps(payload))
+			return
+
+		await self.channel_layer.group_send(
+			self.room_name,
+			{
+				"type": "broadcast_payload",
+				"payload": payload,
+			},
+		)
+
+	def get_token(self):
+		query_string = self.scope.get("query_string", b"").decode()
+		values = parse_qs(query_string).get("token", [])
+		return values[0] if values else None
 
 	@staticmethod
-	@sync_to_async
-	def get_room(code):
+	@database_sync_to_async
+	def get_player_id_from_token(token):
+		if not token:
+			return None
+
 		try:
-			return Room.objects.get(code=code)
+			authenticator = JWTAuthentication()
+			validated_token = authenticator.get_validated_token(token)
+			user = authenticator.get_user(validated_token)
+			return user.player.pk
+		except Exception:
+			return None
+
+	@staticmethod
+	@database_sync_to_async
+	def room_exists(code):
+		return Room.objects.filter(code=code).exists()
+
+	@staticmethod
+	@database_sync_to_async
+	def build_room_event(code, message_type, message=None):
+		try:
+			room = Room.objects.select_related("player_1__user", "player_2__user", "winner__user").get(code=code)
 		except Room.DoesNotExist:
 			return None
+
+		return build_room_event(
+			room=room,
+			message_type=message_type,
+			message=message,
+		)
+
+	@staticmethod
+	@database_sync_to_async
+	def apply_player_move(code, player_id, column):
+		if not player_id:
+			return build_error_response("You must be signed in to make a move.")
+
+		try:
+			column = int(column)
+		except (TypeError, ValueError):
+			return build_error_response("Select a valid column.")
+
+		if column not in range(COLUMNS):
+			return build_error_response("Selected column is outside the board.")
+
+		try:
+			with transaction.atomic():
+				room = Room.objects.select_for_update().select_related().get(code=code)
+
+				status_changed = room.sync_status()
+				if room.status == Room.STATUS_FINISHED:
+					return build_error_response("This game is already finished.")
+
+				if room.status != Room.STATUS_READY:
+					return build_error_response("Wait for another player before making a move.")
+
+				if room.player_1_id == player_id:
+					player_symbol = PLAYER_ONE
+				elif room.player_2_id == player_id:
+					player_symbol = PLAYER_TWO
+				else:
+					return build_error_response("You are not a player in this room.")
+
+				if room.current_turn != player_symbol:
+					return build_error_response("It is not your turn.")
+
+				board = normalize_board(room.board)
+
+				try:
+					next_board = drop_piece(board, column, player_symbol)
+				except ValueError as exc:
+					return build_error_response(str(exc))
+
+				room.board = next_board
+				last_move = {
+					"player": build_player_payload(room, player_symbol),
+					"column": column,
+				}
+				message_type = "player_move"
+				message = None
+				update_fields = ["board", "current_turn"]
+				if status_changed:
+					update_fields.append("game_status")
+
+				if has_winning_line(next_board, player_symbol):
+					room.game_status = Room.STATUS_FINISHED
+					room.winner = room.player_1 if player_symbol == PLAYER_ONE else room.player_2
+					room.winner_symbol = player_symbol
+					message_type = "game_over"
+					message = f"{last_move['player']['username'] or 'Player'} wins."
+					update_player_records(room, player_symbol)
+					for field in ["game_status", "winner", "winner_symbol"]:
+						if field not in update_fields:
+							update_fields.append(field)
+				elif not get_valid_moves(next_board):
+					room.game_status = Room.STATUS_FINISHED
+					room.winner = None
+					room.winner_symbol = None
+					message_type = "game_over"
+					message = "Game ended in a draw."
+					update_draw_records(room)
+					for field in ["game_status", "winner", "winner_symbol"]:
+						if field not in update_fields:
+							update_fields.append(field)
+				else:
+					room.current_turn = get_opponent_symbol(player_symbol)
+
+				room.save(update_fields=update_fields)
+		except Room.DoesNotExist:
+			return build_error_response("Room does not exist.")
+
+		return build_room_event(
+			room=room,
+			message_type=message_type,
+			message=message,
+			last_move=last_move,
+		)
+
+	@staticmethod
+	@database_sync_to_async
+	def remove_player_from_room(code, player_id):
+		try:
+			room = Room.objects.select_related("player_1__user", "player_2__user", "winner__user").get(code=code)
+		except Room.DoesNotExist:
+			return None
+
+		update_fields = []
+		if room.player_1_id == player_id:
+			room.player_1 = None
+			update_fields.append("player_1")
+
+		if room.player_2_id == player_id:
+			room.player_2 = None
+			update_fields.append("player_2")
+
+		if not update_fields:
+			return None
+
+		if room.sync_status():
+			update_fields.append("game_status")
+
+		room.save(update_fields=update_fields)
+		return build_room_event(room=room, message_type="room_state")
+
+
+def update_player_records(room, winner_symbol):
+	winner_id = room.player_1_id if winner_symbol == PLAYER_ONE else room.player_2_id
+	loser_id = room.player_2_id if winner_symbol == PLAYER_ONE else room.player_1_id
+
+	Player.objects.filter(pk=winner_id).update(
+		games_played=F("games_played") + 1,
+		wins=F("wins") + 1,
+	)
+	Player.objects.filter(pk=loser_id).update(
+		games_played=F("games_played") + 1,
+		losses=F("losses") + 1,
+	)
+
+
+def update_draw_records(room):
+	Player.objects.filter(pk__in=[room.player_1_id, room.player_2_id]).update(
+		games_played=F("games_played") + 1,
+		draws=F("draws") + 1,
+	)

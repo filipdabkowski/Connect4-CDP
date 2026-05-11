@@ -1,13 +1,58 @@
+import type {BoardCell, BoardState, PlayerSymbol} from "../api/game.ts";
+
 type Connect4BoardProps = {
     active?: boolean;
     statusLabel?: string;
+    board?: BoardState;
+    boardCaption?: string;
+    canMove?: boolean;
+    currentPlayerSymbol?: PlayerSymbol;
+    playerSymbol?: PlayerSymbol | null;
+    movePending?: boolean;
+    onColumnSelect?: (column: number) => void;
 };
 
 const COLUMNS = 7;
 const ROWS = 6;
+const EMPTY_BOARD: BoardState = Array.from(
+    {length: ROWS},
+    () => Array.from({length: COLUMNS}, () => 0 as BoardCell),
+);
 
-export default function Connect4Board({active = false, statusLabel}: Connect4BoardProps) {
-    const cells = Array.from({length: COLUMNS * ROWS}, (_, index) => index);
+function getCellClasses(value: BoardCell) {
+    if (value === 1) {
+        return "border-red-200/40 bg-red-500 shadow-[inset_0_10px_18px_rgba(254,202,202,0.45),0_5px_12px_rgba(127,29,29,0.55)]";
+    }
+
+    if (value === 2) {
+        return "border-yellow-100/60 bg-yellow-300 shadow-[inset_0_10px_18px_rgba(254,249,195,0.55),0_5px_12px_rgba(113,63,18,0.45)]";
+    }
+
+    return "border-slate-950/10 bg-slate-950/80 shadow-[inset_0_10px_18px_rgba(15,23,42,0.95),0_4px_10px_rgba(15,23,42,0.35)]";
+}
+
+export default function Connect4Board({
+    active = false,
+    statusLabel,
+    board = EMPTY_BOARD,
+    boardCaption,
+    canMove = false,
+    currentPlayerSymbol,
+    playerSymbol,
+    movePending = false,
+    onColumnSelect,
+}: Connect4BoardProps) {
+    const cells = Array.from({length: COLUMNS * ROWS}, (_, index) => {
+        const row = Math.floor(index / COLUMNS);
+        const column = index % COLUMNS;
+        return {
+            index,
+            row,
+            column,
+            value: board[row]?.[column] ?? 0,
+        };
+    });
+    const columns = Array.from({length: COLUMNS}, (_, column) => column);
 
     return (
         <div className="relative mx-auto w-full max-w-2xl">
@@ -24,7 +69,7 @@ export default function Connect4Board({active = false, statusLabel}: Connect4Boa
                             Connect 4 Board
                         </p>
                         <p className="mt-1 text-sm text-slate-300">
-                            {active ? "Room is live. The board is ready for the first move." : "Preview your private match before the room goes live."}
+                            {boardCaption ?? (active ? "Room is live. Waiting for the next confirmed move." : "Preview your private match before the room goes live.")}
                         </p>
                     </div>
                     {statusLabel && (
@@ -39,15 +84,39 @@ export default function Connect4Board({active = false, statusLabel}: Connect4Boa
                     <div className="grid grid-cols-7 gap-2 sm:gap-3">
                         {cells.map((cell) => (
                             <div
-                                key={cell}
+                                key={cell.index}
                                 className={`
-                                    aspect-square rounded-full border border-slate-950/10 bg-slate-950/80 shadow-[inset_0_10px_18px_rgba(15,23,42,0.95),0_4px_10px_rgba(15,23,42,0.35)]
-                                    ${active ? "ring-1 ring-cyan-100/10" : ""}
+                                    aspect-square rounded-full border ${getCellClasses(cell.value)}
+                                    ${cell.value === currentPlayerSymbol ? "ring-2 ring-white/65" : active ? "ring-1 ring-cyan-100/10" : ""}
                                 `}
                             >
-                                <div className="h-full w-full rounded-full bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.14),rgba(255,255,255,0.02)_42%,transparent_62%)]" />
+                                <div className="h-full w-full rounded-full bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.28),rgba(255,255,255,0.04)_42%,transparent_62%)]" />
                             </div>
                         ))}
+                    </div>
+                    <div className="absolute inset-3 grid grid-cols-7 gap-2 sm:gap-3">
+                        {columns.map((column) => {
+                            const columnOpen = (board[0]?.[column] ?? 1) === 0;
+                            const enabled = canMove && columnOpen && !movePending;
+
+                            return (
+                                <button
+                                    key={column}
+                                    type="button"
+                                    disabled={!enabled}
+                                    onClick={() => onColumnSelect?.(column)}
+                                    className={`
+                                        h-full rounded-[1rem] transition
+                                        enabled:cursor-pointer enabled:hover:bg-white/10 enabled:focus-visible:outline-none enabled:focus-visible:ring-2 enabled:focus-visible:ring-white/70
+                                        disabled:cursor-not-allowed
+                                        ${playerSymbol === 1 ? "enabled:hover:ring-2 enabled:hover:ring-red-100/60" : ""}
+                                        ${playerSymbol === 2 ? "enabled:hover:ring-2 enabled:hover:ring-yellow-100/70" : ""}
+                                    `}
+                                >
+                                    <span className="sr-only">Drop piece in column {column + 1}</span>
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
             </div>

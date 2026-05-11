@@ -4,8 +4,9 @@ import Connect4Board from "../components/Connect4Board.tsx";
 import FormInput from "../components/FormInput.tsx";
 import MainButton from "../components/MainButton.tsx";
 import {useAuth} from "../auth/useAuth.ts";
-import {createRoom} from "../api/game.ts";
+import {createRoom, joinRoom, leaveRoom, type PlayerSymbol, type RoomErrorResponse, type RoomState} from "../api/game.ts";
 import {api} from "../api/client.ts";
+import axios from "axios";
 
 type RoomPhase = "idle" | "creating" | "connecting" | "connected" | "error";
 
@@ -17,8 +18,92 @@ function buildGameSocketUrl(roomCode: string) {
     const apiBaseUrl = api.defaults.baseURL ?? "http://localhost:8000/api/";
     const backendUrl = new URL(apiBaseUrl);
     const protocol = backendUrl.protocol === "https:" ? "wss:" : "ws:";
+    const token = localStorage.getItem("access_token");
+    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : "";
 
-    return `${protocol}//${backendUrl.host}/ws/game/${roomCode}/`;
+    return `${protocol}//${backendUrl.host}/ws/game/${roomCode}/${tokenQuery}`;
+}
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+    if (axios.isAxiosError<{message?: string}>(error)) {
+        return error.response?.data?.message ?? fallback;
+    }
+
+    return fallback;
+}
+
+function isRoomState(payload: unknown): payload is RoomState {
+    if (!payload || typeof payload !== "object") return false;
+
+    const candidate = payload as Partial<RoomState>;
+    return typeof candidate.roomCode === "string" && typeof candidate.status === "string";
+}
+
+function isRoomError(payload: unknown): payload is RoomErrorResponse {
+    if (!payload || typeof payload !== "object") return false;
+
+    const candidate = payload as {type?: unknown; message?: unknown};
+    return candidate.type === "room_error" && typeof candidate.message === "string";
+}
+
+function buildRoomHeading(roomState: RoomState | null, fallbackUsername?: string) {
+    if (!roomState) return "Private Connect 4";
+
+    const player1 = roomState.player1 ?? "Waiting...";
+    const player2 = roomState.player2 ?? "Waiting...";
+
+    if (!roomState.player1 && !roomState.player2 && fallbackUsername) {
+        return `${fallbackUsername} vs Waiting...`;
+    }
+
+    return `${player1} vs ${player2}`;
+}
+
+function getCurrentUserSymbol(roomState: RoomState | null, username?: string): PlayerSymbol | null {
+    if (!roomState || !username) return null;
+
+    if (roomState.player1 === username) return 1;
+    if (roomState.player2 === username) return 2;
+    return null;
+}
+
+function getTurnMessage(roomState: RoomState, username?: string) {
+    if (roomState.status === "finished") {
+        if (roomState.gameResult?.isDraw) {
+            return "Game over. Draw.";
+        }
+
+        if (roomState.gameResult?.winner?.username === username) {
+            return "Game over. You won.";
+        }
+
+        return `Game over. ${roomState.gameResult?.winner?.username ?? "Opponent"} won.`;
+    }
+
+    if (roomState.status !== "ready") {
+        return "Waiting for another player.";
+    }
+
+    if (roomState.currentPlayer.username === username) {
+        return "Your move.";
+    }
+
+    return `${roomState.currentPlayer.username ?? "Opponent"}'s move.`;
+}
+
+function getRoomStatusMessage(roomState: RoomState, username?: string) {
+    const turnMessage = getTurnMessage(roomState, username);
+
+    if (roomState.type === "game_over") {
+        return roomState.message ? `${roomState.message} ${turnMessage}` : turnMessage;
+    }
+
+    if (roomState.type === "player_move" && roomState.lastMove) {
+        const playerName = roomState.lastMove.player.username ?? "A player";
+        return `${playerName} played column ${roomState.lastMove.column + 1}. ${turnMessage}`;
+    }
+
+    return turnMessage;
 }
 
 export default function HomePage() {
@@ -28,9 +113,19 @@ export default function HomePage() {
 
     const [roomInput, setRoomInput] = useState("");
     const [activeRoomCode, setActiveRoomCode] = useState<string | null>(null);
+    const [roomState, setRoomState] = useState<RoomState | null>(null);
     const [roomPhase, setRoomPhase] = useState<RoomPhase>("idle");
     const [roomError, setRoomError] = useState<string | null>(null);
     const [statusMessage, setStatusMessage] = useState("No room joined yet.");
+    const [movePending, setMovePending] = useState(false);
+
+    function applyRoomState(nextRoomState: RoomState) {
+        setRoomState(nextRoomState);
+        setActiveRoomCode(nextRoomState.roomCode);
+        setRoomError(null);
+        setMovePending(false);
+        setStatusMessage(getRoomStatusMessage(nextRoomState, user?.username));
+    }
 
     function disconnectSocket() {
         if (!socketRef.current) return;
@@ -56,19 +151,24 @@ export default function HomePage() {
 
             opened = true;
             setRoomPhase("connected");
-            setStatusMessage("Connected. Waiting for the second player to join the room.");
+            setStatusMessage("Connected.");
         };
 
         socket.onmessage = (event) => {
             if (socketRef.current !== socket) return;
 
             try {
-                const payload = JSON.parse(event.data) as {type?: string};
-                if (payload.type === "room_state") {
+                const payload = JSON.parse(event.data) as unknown;
+                if (isRoomState(payload)) {
                     setRoomPhase("connected");
-                    setStatusMessage("Room synchronized. Your private match is ready.");
+                    applyRoomState(payload);
+                } else if (isRoomError(payload)) {
+                    setMovePending(false);
+                    setRoomError(payload.message);
+                    setStatusMessage(payload.message);
                 }
             } catch {
+                setMovePending(false);
                 setStatusMessage("Connected to room. Listening for game updates.");
             }
         };
@@ -78,6 +178,7 @@ export default function HomePage() {
 
             setRoomPhase("error");
             setRoomError("The room connection ran into an error.");
+            setMovePending(false);
             setStatusMessage("Room connection failed.");
         };
 
@@ -99,6 +200,7 @@ export default function HomePage() {
                     ? "The room connection closed. Rejoin to continue playing."
                     : "Could not connect to that room. Try another code or create a new one."
             );
+            setMovePending(false);
             setStatusMessage(opened ? "Connection lost." : "Room unavailable.");
         };
     }
@@ -113,9 +215,23 @@ export default function HomePage() {
             return;
         }
 
-        setActiveRoomCode(nextCode);
-        setRoomInput(nextCode);
-        connectToRoom(nextCode);
+        try {
+            setRoomPhase("connecting");
+            setRoomError(null);
+            setStatusMessage(`Joining room ${nextCode}...`);
+
+            const response = await joinRoom(nextCode);
+            applyRoomState(response);
+            setRoomInput(response.roomCode);
+            connectToRoom(response.roomCode);
+        } catch (error) {
+            setActiveRoomCode(null);
+            setRoomPhase("error");
+            setRoomError(getApiErrorMessage(error, "Could not join that room."));
+            setRoomState(null);
+            setMovePending(false);
+            setStatusMessage("Room join failed.");
+        }
     }
 
     async function handleCreateRoom() {
@@ -127,22 +243,65 @@ export default function HomePage() {
             setStatusMessage("Creating your private room...");
 
             const response = await createRoom({code: preferredCode || undefined});
-            setActiveRoomCode(response.roomCode);
+            applyRoomState(response);
             setRoomInput(response.roomCode);
             connectToRoom(response.roomCode);
         } catch {
             setRoomPhase("error");
             setRoomError("Could not create a room right now. Try another code or retry in a moment.");
+            setMovePending(false);
             setStatusMessage("Room creation failed.");
         }
     }
 
-    function handleLeaveRoom() {
-        disconnectSocket();
-        setActiveRoomCode(null);
-        setRoomPhase("idle");
-        setRoomError(null);
-        setStatusMessage("No room joined yet.");
+    function handleBoardColumnSelect(column: number) {
+        const socket = socketRef.current;
+        const playerSymbol = getCurrentUserSymbol(roomState, user?.username);
+
+        if (!roomState || !playerSymbol) {
+            setStatusMessage("Join the room as a player before making a move.");
+            return;
+        }
+
+        if (roomState.currentPlayer.symbol !== playerSymbol) {
+            setStatusMessage(getTurnMessage(roomState, user?.username));
+            return;
+        }
+
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            setRoomError("The room socket is not connected.");
+            setStatusMessage("Reconnect before making a move.");
+            return;
+        }
+
+        setMovePending(true);
+        setStatusMessage(`Move sent for column ${column + 1}. Waiting for server.`);
+        socket.send(JSON.stringify({
+            type: "player_move",
+            player: {
+                username: user?.username ?? null,
+                symbol: playerSymbol,
+            },
+            column,
+        }));
+    }
+
+    async function handleLeaveRoom() {
+        const roomCode = activeRoomCode;
+
+        try {
+            if (roomCode) {
+                await leaveRoom(roomCode);
+            }
+        } finally {
+            disconnectSocket();
+            setActiveRoomCode(null);
+            setRoomState(null);
+            setRoomPhase("idle");
+            setRoomError(null);
+            setMovePending(false);
+            setStatusMessage("No room joined yet.");
+        }
     }
 
     useEffect(() => {
@@ -153,8 +312,17 @@ export default function HomePage() {
 
     const isInRoom = !!activeRoomCode;
     const isBusy = roomPhase === "creating" || roomPhase === "connecting";
+    const playerSymbol = getCurrentUserSymbol(roomState, user?.username);
+    const isCurrentTurn = !!playerSymbol && roomState?.currentPlayer.symbol === playerSymbol;
+    const canSendMove = isInRoom && roomPhase === "connected" && roomState?.status === "ready" && isCurrentTurn && !movePending;
     const roomStatusLabel =
-        roomPhase === "connected"
+        movePending
+            ? "Move Sent"
+            : roomState?.status === "finished"
+                ? "Game Over"
+            : roomPhase === "connected" && roomState?.status === "ready"
+                ? isCurrentTurn ? "Your Move" : "Opponent Turn"
+                : roomPhase === "connected"
             ? "Room Live"
             : roomPhase === "connecting"
                 ? "Connecting"
@@ -164,9 +332,8 @@ export default function HomePage() {
                         ? "Reconnect Needed"
                         : "Lobby";
 
-    const heading = isInRoom
-        ? `${user?.username ?? "Player 1"} vs Waiting for player 2`
-        : "Private Connect 4, one room at a time";
+    const heading = buildRoomHeading(roomState, user?.username);
+    const boardCaption = roomState ? getRoomStatusMessage(roomState, user?.username) : undefined;
 
     const description = isInRoom
         ? "Share the room code, keep this board open, and the same screen becomes your live match UI once both players connect."
@@ -250,7 +417,7 @@ export default function HomePage() {
                                     {isInRoom && (
                                         <button
                                             type="button"
-                                            onClick={handleLeaveRoom}
+                                            onClick={() => void handleLeaveRoom()}
                                             className="rounded-full border border-white/10 px-3 py-1 text-slate-200 transition hover:border-cyan-300/30 hover:text-white"
                                         >
                                             Leave room
@@ -264,6 +431,13 @@ export default function HomePage() {
                             <Connect4Board
                                 active={isInRoom}
                                 statusLabel={roomStatusLabel}
+                                board={roomState?.board}
+                                boardCaption={boardCaption}
+                                canMove={canSendMove}
+                                currentPlayerSymbol={roomState?.currentPlayer.symbol}
+                                playerSymbol={playerSymbol}
+                                movePending={movePending}
+                                onColumnSelect={handleBoardColumnSelect}
                             />
                         </section>
                     </div>
