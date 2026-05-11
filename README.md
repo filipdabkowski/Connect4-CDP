@@ -2,19 +2,36 @@
 
 ## Road Map
 
-- [ ] Login & Sign up pages (back REST API & front)
+- [x] Login & Sign up pages (back REST API & front)
   - [x] Login connected and works (simple)
   - [x] Register connected
   - [x] Error handling
   - [x] Logout
   - [x] Redirect to game and login page (IsAuth)
+  - [x] Background refresh token
 - [x] Manual game room creation (channels & web sockets)
-  - [ ] Revisit messages on join
-- [ ] Game implementation frontend interface
+  - [x] Revisit messages on join
+  - [x] Leave room event
+  - [x] Both players can rejoin room
+- [x] Game implementation frontend interface
+  - [x] Board is clickable
+  - [x] On click send move via socket
+  - [x] Update board from received response
+  - [x] State updates on game won
 - [ ] Game logic implementation backend (move validation ...)
+  - [x] Store board state in DB
+  - [x] Socket receive move info & update state
+  - [x] Check & process win condition 
+  - [ ] Validate correct user moves
 - [ ] Database expansion - redis for channels & board representation, moves log
+  - [x] Change default DB to PostgreSql
+  - [x] Add Redis for channels management  
+- [ ] MinMax bot opponent
+  - [x] Base bot endpoint
+  - [ ] Front end implementation
+  - [ ] Possible player bot game room
+  - [ ] Implementation of MinMax alg
 - [ ] ? Match making queue (private games & public games)
-- [ ] ? MinMax bot opponent
 
 ## Evaluation Criteria
 1. Implementation [12 points]
