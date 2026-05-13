@@ -30,7 +30,7 @@ class GameConsumer(AsyncWebsocketConsumer):
 		self.room_name = f"room_{self.room_code}"
 		self.player_id = await self._get_player_id_from_token(self._get_token())
 
-		if not await self._room_exists(self.room_code):
+		if not await self._player_can_connect_to_room(self.room_code, self.player_id):
 			await self.close()
 			return
 
@@ -48,17 +48,6 @@ class GameConsumer(AsyncWebsocketConsumer):
 	async def disconnect(self, close_code):
 		if self.room_name:
 			await self.channel_layer.group_discard(self.room_name, self.channel_name)
-
-		if self.room_name and self.player_id:
-			payload = await self._remove_player_from_room(self.room_code, self.player_id)
-			if payload:
-				await self.channel_layer.group_send(
-					self.room_name,
-					{
-						"type": "broadcast_payload",
-						"payload": payload,
-					},
-				)
 
 	async def receive(self, text_data=None, bytes_data=None):
 		if not text_data:
@@ -149,8 +138,15 @@ class GameConsumer(AsyncWebsocketConsumer):
 
 	@staticmethod
 	@database_sync_to_async
-	def _room_exists(code):
-		return Room.objects.filter(code=code).exists()
+	def _player_can_connect_to_room(code, player_id):
+		if not player_id:
+			return False
+
+		return Room.objects.filter(code=code).filter(
+			player_1_id=player_id
+		).exists() or Room.objects.filter(code=code).filter(
+			player_2_id=player_id
+		).exists()
 
 	@staticmethod
 	@database_sync_to_async
@@ -228,32 +224,6 @@ class GameConsumer(AsyncWebsocketConsumer):
 				"last_move": last_move,
 			},
 		).data
-
-	@staticmethod
-	@database_sync_to_async
-	def _remove_player_from_room(code, player_id):
-		try:
-			room = Room.objects.select_related("player_1__user", "player_2__user", "winner__user").get(code=code)
-		except Room.DoesNotExist:
-			return None
-
-		update_fields = []
-		if room.player_1_id == player_id:
-			room.player_1 = None
-			update_fields.append("player_1")
-
-		if room.player_2_id == player_id:
-			room.player_2 = None
-			update_fields.append("player_2")
-
-		if not update_fields:
-			return None
-
-		if room.sync_status():
-			update_fields.append("game_status")
-
-		room.save(update_fields=update_fields)
-		return RoomSerializer(room, context={"message_type": "room_state"}).data
 
 
 def update_player_records(room, winner_symbol):
