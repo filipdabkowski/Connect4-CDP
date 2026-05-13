@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from .models import Room
-from .minimax_bot import PLAYER_ONE, PLAYER_TWO, create_empty_board
+from .game_logic import PLAYER_ONE, PLAYER_TWO, create_empty_board
 
 
 class RoomPlayerSerializer(serializers.Serializer):

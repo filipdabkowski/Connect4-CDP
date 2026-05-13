@@ -1,20 +1,23 @@
 from django.db import models
 
-from .minimax_bot import PLAYER_ONE, create_empty_board
+from .game_logic import (
+	PLAYER_ONE,
+	ROOM_STATUS_CHOICES,
+	ROOM_STATUS_FINISHED,
+	ROOM_STATUS_READY,
+	ROOM_STATUS_WAITING,
+	create_empty_board,
+)
 from player.models import Player
 
 import uuid
 
 
 class Room(models.Model):
-	STATUS_WAITING = "waiting"
-	STATUS_READY = "ready"
-	STATUS_FINISHED = "finished"
-	STATUS_CHOICES = [
-		(STATUS_WAITING, "Waiting"),
-		(STATUS_READY, "Ready"),
-		(STATUS_FINISHED, "Finished"),
-	]
+	STATUS_WAITING = ROOM_STATUS_WAITING
+	STATUS_READY = ROOM_STATUS_READY
+	STATUS_FINISHED = ROOM_STATUS_FINISHED
+	STATUS_CHOICES = ROOM_STATUS_CHOICES
 
 	code = models.CharField(max_length=12, unique=True, default="", blank=True)
 	player_1 = models.ForeignKey(Player, on_delete=models.SET_NULL, blank=True, null=True, related_name='rooms_player_1')

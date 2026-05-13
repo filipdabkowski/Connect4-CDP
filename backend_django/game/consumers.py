@@ -6,15 +6,11 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from urllib.parse import parse_qs
 
 from .models import Room
-from .minimax_bot import (
-	COLUMNS,
+from .game_logic import (
+	GameMoveError,
 	PLAYER_ONE,
-	PLAYER_TWO,
-	drop_piece,
-	get_valid_moves,
-	get_opponent_symbol,
-	has_winning_line,
-	normalize_board,
+	ROOM_STATUS_FINISHED,
+	process_room_move,
 )
 from .serializers import RoomErrorSerializer, RoomPlayerSerializer, RoomSerializer
 from player.models import Player
@@ -32,9 +28,9 @@ class GameConsumer(AsyncWebsocketConsumer):
 	async def connect(self):
 		self.room_code = self.scope["url_route"]["kwargs"]["room_code"]
 		self.room_name = f"room_{self.room_code}"
-		self.player_id = await self.get_player_id_from_token(self.get_token())
+		self.player_id = await self._get_player_id_from_token(self._get_token())
 
-		if not await self.room_exists(self.room_code):
+		if not await self._room_exists(self.room_code):
 			await self.close()
 			return
 
@@ -54,7 +50,7 @@ class GameConsumer(AsyncWebsocketConsumer):
 			await self.channel_layer.group_discard(self.room_name, self.channel_name)
 
 		if self.room_name and self.player_id:
-			payload = await self.remove_player_from_room(self.room_code, self.player_id)
+			payload = await self._remove_player_from_room(self.room_code, self.player_id)
 			if payload:
 				await self.channel_layer.group_send(
 					self.room_name,
@@ -78,7 +74,7 @@ class GameConsumer(AsyncWebsocketConsumer):
 		message = data.get("message")
 
 		if message_type == "player_move":
-			await self.handle_player_move(data)
+			await self._handle_player_move(data)
 			return
 
 		await self.channel_layer.group_send(
@@ -100,7 +96,7 @@ class GameConsumer(AsyncWebsocketConsumer):
 		await self.send(text_data=json.dumps(event["payload"]))
 
 	async def send_room_event(self, message_type, message=None):
-		payload = await self.serialize_room_event(self.room_code, message_type, message)
+		payload = await self._serialize_room_event(self.room_code, message_type, message)
 		if not payload:
 			return
 
@@ -111,8 +107,8 @@ class GameConsumer(AsyncWebsocketConsumer):
 			{"message": message}
 		).data))
 
-	async def handle_player_move(self, data):
-		payload = await self.apply_player_move(
+	async def _handle_player_move(self, data):
+		payload = await self._apply_player_move(
 			self.room_code,
 			self.player_id,
 			data.get("column"),
@@ -132,14 +128,14 @@ class GameConsumer(AsyncWebsocketConsumer):
 			},
 		)
 
-	def get_token(self):
+	def _get_token(self):
 		query_string = self.scope.get("query_string", b"").decode()
 		values = parse_qs(query_string).get("token", [])
 		return values[0] if values else None
 
 	@staticmethod
 	@database_sync_to_async
-	def get_player_id_from_token(token):
+	def _get_player_id_from_token(token):
 		if not token:
 			return None
 
@@ -153,12 +149,12 @@ class GameConsumer(AsyncWebsocketConsumer):
 
 	@staticmethod
 	@database_sync_to_async
-	def room_exists(code):
+	def _room_exists(code):
 		return Room.objects.filter(code=code).exists()
 
 	@staticmethod
 	@database_sync_to_async
-	def serialize_room_event(code, message_type, message=None):
+	def _serialize_room_event(code, message_type, message=None):
 		try:
 			room = Room.objects.select_related("player_1__user", "player_2__user", "winner__user").get(code=code)
 		except Room.DoesNotExist:
@@ -174,95 +170,49 @@ class GameConsumer(AsyncWebsocketConsumer):
 
 	@staticmethod
 	@database_sync_to_async
-	def apply_player_move(code, player_id, column):
-		if not player_id:
-			return RoomErrorSerializer(
-				{"message": "You must be signed in to make a move."}
-			).data
-
-		try:
-			column = int(column)
-		except (TypeError, ValueError):
-			return RoomErrorSerializer(
-				{"message": "Select a valid column."}
-			).data
-
-		if column not in range(COLUMNS):
-			return RoomErrorSerializer(
-				{"message": "Selected column is outside the board."}
-			).data
-
+	def _apply_player_move(code, player_id, column):
 		try:
 			with transaction.atomic():
 				room = Room.objects.select_for_update().select_related().get(code=code)
 
 				status_changed = room.sync_status()
-				if room.status == Room.STATUS_FINISHED:
-					return RoomErrorSerializer(
-						{"message": "This game is already finished."}
-					).data
-
-				if room.status != Room.STATUS_READY:
-					return RoomErrorSerializer(
-						{"message": "Wait for another player before making a move."}
-					).data
-
-				if room.player_1_id == player_id:
-					player_symbol = PLAYER_ONE
-				elif room.player_2_id == player_id:
-					player_symbol = PLAYER_TWO
-				else:
-					return RoomErrorSerializer(
-						{"message": "You are not a player in this room."}
-					).data
-
-				if room.current_turn != player_symbol:
-					return RoomErrorSerializer(
-						{"message": "It is not your turn."}
-					).data
-
-				board = normalize_board(room.board)
-
 				try:
-					next_board = drop_piece(board, column, player_symbol)
-				except ValueError as exc:
+					move_result = process_room_move(room, player_id, column)
+				except GameMoveError as exc:
 					return RoomErrorSerializer(
 						{"message": str(exc)}
 					).data
 
-				room.board = next_board
+				room.board = move_result.board
 				last_move = {
-					"player": RoomPlayerSerializer.from_room(room, player_symbol),
-					"column": column,
+					"player": RoomPlayerSerializer.from_room(room, move_result.player_symbol),
+					"column": move_result.column,
 				}
-				message_type = "player_move"
-				message = None
+				message_type = move_result.message_type
+				message = move_result.message
 				update_fields = ["board", "current_turn"]
 				if status_changed:
 					update_fields.append("game_status")
 
-				if has_winning_line(next_board, player_symbol):
-					room.game_status = Room.STATUS_FINISHED
-					room.winner = room.player_1 if player_symbol == PLAYER_ONE else room.player_2
-					room.winner_symbol = player_symbol
-					message_type = "game_over"
+				if move_result.winner_symbol:
+					room.game_status = ROOM_STATUS_FINISHED
+					room.winner = room.player_1 if move_result.winner_symbol == PLAYER_ONE else room.player_2
+					room.winner_symbol = move_result.winner_symbol
 					message = f"{last_move['player']['username'] or 'Player'} wins."
-					update_player_records(room, player_symbol)
+					update_player_records(room, move_result.winner_symbol)
 					for field in ["game_status", "winner", "winner_symbol"]:
 						if field not in update_fields:
 							update_fields.append(field)
-				elif not get_valid_moves(next_board):
-					room.game_status = Room.STATUS_FINISHED
+				elif move_result.is_draw:
+					room.game_status = ROOM_STATUS_FINISHED
 					room.winner = None
 					room.winner_symbol = None
-					message_type = "game_over"
-					message = "Game ended in a draw."
 					update_draw_records(room)
 					for field in ["game_status", "winner", "winner_symbol"]:
 						if field not in update_fields:
 							update_fields.append(field)
 				else:
-					room.current_turn = get_opponent_symbol(player_symbol)
+					room.current_turn = move_result.next_turn
 
 				room.save(update_fields=update_fields)
 		except Room.DoesNotExist:
@@ -281,7 +231,7 @@ class GameConsumer(AsyncWebsocketConsumer):
 
 	@staticmethod
 	@database_sync_to_async
-	def remove_player_from_room(code, player_id):
+	def _remove_player_from_room(code, player_id):
 		try:
 			room = Room.objects.select_related("player_1__user", "player_2__user", "winner__user").get(code=code)
 		except Room.DoesNotExist:
