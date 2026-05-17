@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from .models import Room
-from .game_logic import PLAYER_ONE, PLAYER_TWO, create_empty_board
+from .game_logic import PLAYER_ONE, PLAYER_TWO, BOT_USERNAME, create_empty_board
 
 
 class RoomPlayerSerializer(serializers.Serializer):
@@ -21,7 +21,8 @@ class RoomPlayerSerializer(serializers.Serializer):
 		return {
 			"symbol": PLAYER_TWO if symbol == PLAYER_TWO else PLAYER_ONE,
 			"slot": slot,
-			"username": player.user.username if player else None,
+			"username": BOT_USERNAME if symbol == room.bot_symbol and room.is_bot_game else
+			player.user.username if player else None,
 		}
 
 	@staticmethod
@@ -59,6 +60,7 @@ class RoomSerializer(serializers.ModelSerializer):
 	player2 = serializers.SerializerMethodField()
 	board = serializers.SerializerMethodField()
 	currentPlayer = serializers.SerializerMethodField()
+	isBotGame = serializers.SerializerMethodField()
 	gameResult = serializers.SerializerMethodField()
 	message = serializers.SerializerMethodField()
 	lastMove = serializers.SerializerMethodField()
@@ -73,6 +75,7 @@ class RoomSerializer(serializers.ModelSerializer):
 			"player2",
 			"board",
 			"currentPlayer",
+			"isBotGame",
 			"gameResult",
 			"message",
 			"lastMove",
@@ -80,7 +83,7 @@ class RoomSerializer(serializers.ModelSerializer):
 
 	def get_type(self, room):
 		return self.context.get("message_type", "room_state")
-	
+
 	@staticmethod
 	def get_status(room):
 		return room.status
@@ -91,6 +94,8 @@ class RoomSerializer(serializers.ModelSerializer):
 
 	@staticmethod
 	def get_player2(room):
+		if room.is_bot_game and room.bot_symbol == PLAYER_TWO:
+			return BOT_USERNAME
 		return room.player_2.user.username if room.player_2 else None
 
 	@staticmethod
@@ -102,11 +107,15 @@ class RoomSerializer(serializers.ModelSerializer):
 		return RoomPlayerSerializer(RoomPlayerSerializer.from_room(room, room.current_turn)).data
 
 	@staticmethod
+	def get_isBotGame(room):
+		return room.is_bot_game
+
+	@staticmethod
 	def get_gameResult(room):
 		if room.status != Room.STATUS_FINISHED:
 			return None
 
-		if not room.winner_id or not room.winner_symbol:
+		if not room.winner_symbol:
 			return GameResultSerializer(
 				{
 					"winner": None,
@@ -117,6 +126,8 @@ class RoomSerializer(serializers.ModelSerializer):
 		winner_username = None
 		if room.winner:
 			winner_username = room.winner.user.username
+		elif room.is_bot_game and room.winner_symbol == room.bot_symbol:
+			winner_username = BOT_USERNAME
 		elif room.winner_symbol == PLAYER_ONE and room.player_1:
 			winner_username = room.player_1.user.username
 		elif room.winner_symbol == PLAYER_TWO and room.player_2:

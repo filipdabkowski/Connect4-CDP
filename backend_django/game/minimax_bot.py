@@ -1,4 +1,4 @@
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
 from dataclasses import dataclass
 
 from .game_logic import (
@@ -119,23 +119,16 @@ def evaluate_root_moves_in_processes(
 	max_workers: int | None = None,
 ) -> tuple[int, int]:
 	worker_count = normalize_worker_count(max_workers, len(moves))
-	scores_by_column = {}
 
-	with ProcessPoolExecutor(max_workers=worker_count) as executor:
-		futures = {
-			executor.submit(score_root_move, board, column, bot_symbol, depth): column
-			for column in moves
-		}
+	# Every legal move can be scored independently. multiprocessing.Pool starts
+	# worker processes and gives each one a root move to explore with minimax.
+	jobs = [(board, column, bot_symbol, depth) for column in moves]
+	with multiprocessing.Pool(processes=worker_count) as pool:
+		scored_moves = pool.starmap(worker_score_root_move, jobs)
 
-		for future in as_completed(futures):
-			column = futures[future]
-			scores_by_column[column] = future.result()
+	best_column, best_score = scored_moves[0]
 
-	best_column = moves[0]
-	best_score = scores_by_column[best_column]
-
-	for column in moves[1:]:
-		score = scores_by_column[column]
+	for column, score in scored_moves[1:]:
 		if score > best_score:
 			best_column = column
 			best_score = score
@@ -147,17 +140,12 @@ def normalize_worker_count(max_workers: int | None, move_count: int) -> int:
 	if max_workers is None:
 		return min(move_count, COLUMNS)
 
-	try:
-		max_workers = int(max_workers)
-	except (TypeError, ValueError) as exc:
-		raise ValueError("maxWorkers must be an integer.") from exc
-
 	return max(1, min(max_workers, move_count))
 
 
-def score_root_move(board: Board, column: int, bot_symbol: int, depth: int) -> int:
+def worker_score_root_move(board: Board, column: int, bot_symbol: int, depth: int) -> tuple[int, int]:
 	child = drop_piece(board, column, bot_symbol)
-	return minimax(
+	score = minimax(
 		board=child,
 		depth=depth - 1,
 		alpha=-WIN_SCORE * 10,
@@ -165,6 +153,7 @@ def score_root_move(board: Board, column: int, bot_symbol: int, depth: int) -> i
 		maximizing_player=False,
 		bot_symbol=bot_symbol,
 	)[1]
+	return column, score
 
 
 def minimax(

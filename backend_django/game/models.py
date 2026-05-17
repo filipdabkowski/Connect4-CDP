@@ -2,6 +2,7 @@ from django.db import models
 
 from .game_logic import (
 	PLAYER_ONE,
+	PLAYER_TWO,
 	ROOM_STATUS_CHOICES,
 	ROOM_STATUS_FINISHED,
 	ROOM_STATUS_READY,
@@ -24,6 +25,8 @@ class Room(models.Model):
 	player_2 = models.ForeignKey(Player, on_delete=models.SET_NULL, blank=True, null=True, related_name='rooms_player_2')
 	board = models.JSONField(default=create_empty_board)
 	current_turn = models.PositiveSmallIntegerField(default=PLAYER_ONE)
+	is_bot_game = models.BooleanField(default=False)
+	bot_symbol = models.PositiveSmallIntegerField(default=PLAYER_TWO)
 	game_status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_WAITING)
 	winner = models.ForeignKey(Player, on_delete=models.SET_NULL, blank=True, null=True, related_name="won_rooms")
 	winner_symbol = models.PositiveSmallIntegerField(blank=True, null=True)
@@ -39,13 +42,15 @@ class Room(models.Model):
 		if self.game_status == self.STATUS_FINISHED:
 			return self.STATUS_FINISHED
 
-		return self.STATUS_READY if self.player_1_id and self.player_2_id else self.STATUS_WAITING
+		has_opponent = self.player_2_id or self.is_bot_game
+		return self.STATUS_READY if self.player_1_id and has_opponent else self.STATUS_WAITING
 
 	def sync_status(self):
 		if self.game_status == self.STATUS_FINISHED:
 			return False
 
-		next_status = self.STATUS_READY if self.player_1_id and self.player_2_id else self.STATUS_WAITING
+		has_opponent = self.player_2_id or self.is_bot_game
+		next_status = self.STATUS_READY if self.player_1_id and has_opponent else self.STATUS_WAITING
 		if self.game_status == next_status:
 			return False
 

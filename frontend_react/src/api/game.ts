@@ -32,13 +32,14 @@ export type RoomErrorResponse = {
 };
 
 export type RoomState = {
-    type: "room_state" | "room_joined" | "player_move" | "game_over";
+    type: "room_state" | "room_joined" | "room_reset" | "bot_game_started" | "player_move" | "game_over";
     roomCode: string;
     status: RoomStatus;
     player1: string | null;
     player2: string | null;
     board: BoardState;
     currentPlayer: RoomPlayer;
+    isBotGame: boolean;
     gameResult: GameResult | null;
     lastMove?: LastMove;
     message?: string;
@@ -47,6 +48,8 @@ export type RoomState = {
 export type CreateRoomResponse = RoomState;
 export type JoinRoomResponse = CreateRoomResponse;
 export type LeaveRoomResponse = RoomState;
+export type ResetRoomResponse = RoomState;
+export type StartBotGameResponse = RoomState;
 
 export async function createRoom(payload: CreateRoomPayload): Promise<CreateRoomResponse> {
     const body = payload.code ? { code: payload.code } : {};
@@ -67,6 +70,24 @@ export async function leaveRoom(roomCode: string): Promise<LeaveRoomResponse> {
     const code = roomCode.trim().toUpperCase();
     const response = await api.post<LeaveRoomResponse>(
         `/game/rooms/${encodeURIComponent(code)}/leave/`,
+        { code },
+    );
+    return response.data;
+}
+
+export async function resetRoom(roomCode: string): Promise<ResetRoomResponse> {
+    const code = roomCode.trim().toUpperCase();
+    const response = await api.post<ResetRoomResponse>(
+        `/game/rooms/${encodeURIComponent(code)}/reset/`,
+        { code },
+    );
+    return response.data;
+}
+
+export async function startBotGame(roomCode: string): Promise<StartBotGameResponse> {
+    const code = roomCode.trim().toUpperCase();
+    const response = await api.post<StartBotGameResponse>(
+        `/game/rooms/${encodeURIComponent(code)}/bot/start/`,
         { code },
     );
     return response.data;

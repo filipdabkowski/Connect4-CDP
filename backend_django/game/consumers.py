@@ -10,8 +10,13 @@ from .game_logic import (
 	GameMoveError,
 	PLAYER_ONE,
 	ROOM_STATUS_FINISHED,
+	drop_piece,
+	get_opponent_symbol,
+	get_valid_moves,
+	has_winning_line,
 	process_room_move,
 )
+from .minimax_bot import suggest_bot_move
 from .serializers import RoomErrorSerializer, RoomPlayerSerializer, RoomSerializer
 from player.models import Player
 
@@ -191,24 +196,45 @@ class GameConsumer(AsyncWebsocketConsumer):
 					update_fields.append("game_status")
 
 				if move_result.winner_symbol:
-					room.game_status = ROOM_STATUS_FINISHED
-					room.winner = room.player_1 if move_result.winner_symbol == PLAYER_ONE else room.player_2
-					room.winner_symbol = move_result.winner_symbol
+					finish_room_with_winner(room, move_result.winner_symbol, update_fields)
 					message = f"{last_move['player']['username'] or 'Player'} wins."
-					update_player_records(room, move_result.winner_symbol)
-					for field in ["game_status", "winner", "winner_symbol"]:
-						if field not in update_fields:
-							update_fields.append(field)
 				elif move_result.is_draw:
-					room.game_status = ROOM_STATUS_FINISHED
-					room.winner = None
-					room.winner_symbol = None
-					update_draw_records(room)
-					for field in ["game_status", "winner", "winner_symbol"]:
-						if field not in update_fields:
-							update_fields.append(field)
+					finish_room_as_draw(room, update_fields)
 				else:
 					room.current_turn = move_result.next_turn
+
+					if room.is_bot_game and room.current_turn == room.bot_symbol:
+						try:
+							bot_suggestion = suggest_bot_move(
+								board=room.board,
+								bot_symbol=room.bot_symbol,
+								depth=6,
+								use_multiprocessing=True,
+								max_workers=4,
+							)
+						except ValueError as exc:
+							return RoomErrorSerializer(
+								{"message": str(exc)}
+							).data
+
+						room.board = drop_piece(room.board, bot_suggestion.column, room.bot_symbol)
+						last_move = {
+							"player": RoomPlayerSerializer.from_room(room, room.bot_symbol),
+							"column": bot_suggestion.column,
+						}
+						message_type = "player_move"
+						message = f"Bot played column {bot_suggestion.column + 1}."
+
+						if has_winning_line(room.board, room.bot_symbol):
+							finish_room_with_winner(room, room.bot_symbol, update_fields)
+							message_type = "game_over"
+							message = f"{last_move['player']['username'] or 'Bot'} wins."
+						elif not get_valid_moves(room.board):
+							finish_room_as_draw(room, update_fields)
+							message_type = "game_over"
+							message = "Game ended in a draw."
+						else:
+							room.current_turn = get_opponent_symbol(room.bot_symbol)
 
 				room.save(update_fields=update_fields)
 		except Room.DoesNotExist:
@@ -224,6 +250,28 @@ class GameConsumer(AsyncWebsocketConsumer):
 				"last_move": last_move,
 			},
 		).data
+
+
+def finish_room_with_winner(room, winner_symbol, update_fields):
+	room.game_status = ROOM_STATUS_FINISHED
+	room.winner = room.player_1 if winner_symbol == PLAYER_ONE else room.player_2
+	room.winner_symbol = winner_symbol
+	update_player_records(room, winner_symbol)
+	include_update_fields(update_fields, "game_status", "winner", "winner_symbol")
+
+
+def finish_room_as_draw(room, update_fields):
+	room.game_status = ROOM_STATUS_FINISHED
+	room.winner = None
+	room.winner_symbol = None
+	update_draw_records(room)
+	include_update_fields(update_fields, "game_status", "winner", "winner_symbol")
+
+
+def include_update_fields(update_fields, *fields):
+	for field in fields:
+		if field not in update_fields:
+			update_fields.append(field)
 
 
 def update_player_records(room, winner_symbol):

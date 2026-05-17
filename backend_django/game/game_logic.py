@@ -17,6 +17,8 @@ ROOM_STATUS_CHOICES = [
 	(ROOM_STATUS_FINISHED, "Finished"),
 ]
 
+BOT_USERNAME = "Bot"
+
 Board = list[list[int]]
 
 

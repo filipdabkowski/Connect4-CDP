@@ -3,12 +3,19 @@ import React, {useEffect, useRef, useState} from "react";
 import Connect4Board from "../components/Connect4Board.tsx";
 import FormInput from "../components/FormInput.tsx";
 import MainButton from "../components/MainButton.tsx";
+import SecondaryButton from "../components/SecondaryButton.tsx";
 import {useAuth} from "../auth/useAuth.ts";
-import {createRoom, joinRoom, leaveRoom, type PlayerSymbol, type RoomErrorResponse, type RoomState} from "../api/game.ts";
+import {createRoom, joinRoom, leaveRoom, resetRoom, startBotGame, type PlayerSymbol, type RoomErrorResponse, type RoomState} from "../api/game.ts";
 import {api} from "../api/client.ts";
 import axios from "axios";
 
 type RoomPhase = "idle" | "creating" | "connecting" | "connected" | "error";
+
+type RoomAction = {
+    label: string;
+    disabled: boolean;
+    onClick: () => void;
+};
 
 function normalizeRoomCode(value: string) {
     return value.trim().replace(/\s+/g, "").toUpperCase();
@@ -81,6 +88,10 @@ function getTurnMessage(roomState: RoomState, username?: string) {
     }
 
     if (roomState.status !== "ready") {
+        if (roomState.isBotGame) {
+            return "Starting bot game.";
+        }
+
         return "Waiting for another player.";
     }
 
@@ -207,6 +218,12 @@ export default function HomePage() {
 
     async function handleJoinRoom(event: React.SubmitEvent<HTMLFormElement>) {
         event.preventDefault();
+
+        if (activeRoomCode) {
+            await handleLeaveRoom();
+            return;
+        }
+
         const nextCode = normalizeRoomCode(roomInput);
 
         if (!nextCode) {
@@ -234,6 +251,31 @@ export default function HomePage() {
         }
     }
 
+    async function handleStartBotGame() {
+        const roomCode = activeRoomCode;
+
+        if (!roomCode) {
+            setRoomError("Join or create a room before starting a bot game.");
+            return;
+        }
+
+        try {
+            setRoomPhase("connecting");
+            setRoomError(null);
+            setStatusMessage("Starting bot game...");
+
+            const response = await startBotGame(roomCode);
+            applyRoomState(response);
+            setRoomInput(response.roomCode);
+            setRoomPhase("connected");
+        } catch (error) {
+            setRoomPhase("connected");
+            setRoomError(getApiErrorMessage(error, "Could not start a bot game in this room."));
+            setMovePending(false);
+            setStatusMessage("Bot game could not start.");
+        }
+    }
+
     async function handleCreateRoom() {
         const preferredCode = normalizeRoomCode(roomInput);
 
@@ -251,6 +293,31 @@ export default function HomePage() {
             setRoomError("Could not create a room right now. Try another code or retry in a moment.");
             setMovePending(false);
             setStatusMessage("Room creation failed.");
+        }
+    }
+
+    async function handleResetRoom() {
+        const roomCode = activeRoomCode;
+
+        if (!roomCode) {
+            setRoomError("Join a room before resetting the game.");
+            return;
+        }
+
+        try {
+            setRoomPhase("connecting");
+            setRoomError(null);
+            setStatusMessage("Resetting game...");
+
+            const response = await resetRoom(roomCode);
+            applyRoomState(response);
+            setRoomInput(response.roomCode);
+            setRoomPhase("connected");
+        } catch (error) {
+            setRoomPhase("connected");
+            setRoomError(getApiErrorMessage(error, "Could not reset this game."));
+            setMovePending(false);
+            setStatusMessage("Game reset failed.");
         }
     }
 
@@ -315,6 +382,13 @@ export default function HomePage() {
     const playerSymbol = getCurrentUserSymbol(roomState, user?.username);
     const isCurrentTurn = !!playerSymbol && roomState?.currentPlayer.symbol === playerSymbol;
     const canSendMove = isInRoom && roomPhase === "connected" && roomState?.status === "ready" && isCurrentTurn && !movePending;
+    const canStartBotGame =
+        isInRoom &&
+        roomPhase === "connected" &&
+        roomState?.status === "waiting" &&
+        !roomState.player2 &&
+        !roomState.isBotGame;
+    const canResetGame = isInRoom && roomPhase === "connected" && roomState?.status === "finished";
     const roomStatusLabel =
         movePending
             ? "Move Sent"
@@ -336,8 +410,51 @@ export default function HomePage() {
     const boardCaption = roomState ? getRoomStatusMessage(roomState, user?.username) : undefined;
 
     const description = isInRoom
-        ? "Share the room code, keep this board open, and the same screen becomes your live match UI once both players connect."
+        ? roomState?.status === "finished"
+            ? "The round is finished. Reset the game to play another round in this room."
+            : roomState?.isBotGame
+            ? "You are playing against the bot. This room is locked and cannot be joined by other players."
+            : "Share the room code, keep this board open, or start a bot game before another player joins."
         : "Create a fresh game room or enter an existing code to join a private head-to-head match.";
+    const secondaryAction: RoomAction = (() => {
+        if (!isInRoom) {
+            return {
+                label: roomPhase === "creating" ? "Creating room..." : "Create room",
+                disabled: isBusy,
+                onClick: () => void handleCreateRoom(),
+            };
+        }
+
+        if (roomState?.status === "finished") {
+            return {
+                label: roomPhase === "connecting" ? "Resetting..." : "Reset game",
+                disabled: isBusy || !canResetGame,
+                onClick: () => void handleResetRoom(),
+            };
+        }
+
+        if (roomState?.player2) {
+            return {
+                label: "Reset game",
+                disabled: true,
+                onClick: () => undefined,
+            };
+        }
+
+        if (roomState?.isBotGame) {
+            return {
+                label: "Playing bot",
+                disabled: true,
+                onClick: () => undefined,
+            };
+        }
+
+        return {
+            label: roomPhase === "connecting" ? "Starting bot..." : "Play with Bot",
+            disabled: isBusy || !canStartBotGame,
+            onClick: () => void handleStartBotGame(),
+        };
+    })();
 
     return (
         <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.18),transparent_28%),linear-gradient(180deg,#0f172a_0%,#020617_100%)] text-white">
@@ -382,7 +499,7 @@ export default function HomePage() {
                                         label="Room code"
                                         value={roomInput}
                                         placeholder="Enter private room code"
-                                        required={true}
+                                        required={!isInRoom}
                                         onChange={(event) => {
                                             setRoomInput(event.target.value.toUpperCase());
                                             setRoomError(null);
@@ -397,16 +514,14 @@ export default function HomePage() {
 
                                     <div className="grid gap-3 sm:grid-cols-2">
                                         <MainButton disabled={isBusy}>
-                                            {roomPhase === "connecting" ? "Joining room..." : "Join room"}
+                                            {isInRoom ? "Leave room" : roomPhase === "connecting" ? "Joining room..." : "Join room"}
                                         </MainButton>
-                                        <button
-                                            type="button"
-                                            disabled={isBusy}
-                                            onClick={() => void handleCreateRoom()}
-                                            className="rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 py-1.5 text-sm/6 font-semibold text-cyan-50 transition hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:border-cyan-300/10 disabled:bg-cyan-300/5 disabled:text-cyan-100/50"
+                                        <SecondaryButton
+                                            disabled={secondaryAction.disabled}
+                                            onClick={secondaryAction.onClick}
                                         >
-                                            {roomPhase === "creating" ? "Creating room..." : "Create room"}
-                                        </button>
+                                            {secondaryAction.label}
+                                        </SecondaryButton>
                                     </div>
                                 </form>
 
@@ -414,14 +529,10 @@ export default function HomePage() {
                                     <span className="rounded-full border border-white/10 bg-slate-950/40 px-3 py-1">
                                         Status: {statusMessage}
                                     </span>
-                                    {isInRoom && (
-                                        <button
-                                            type="button"
-                                            onClick={() => void handleLeaveRoom()}
-                                            className="rounded-full border border-white/10 px-3 py-1 text-slate-200 transition hover:border-cyan-300/30 hover:text-white"
-                                        >
-                                            Leave room
-                                        </button>
+                                    {roomState?.isBotGame && (
+                                        <span className="rounded-full border border-yellow-200/20 bg-yellow-300/10 px-3 py-1 text-yellow-50">
+                                            Closed to joins
+                                        </span>
                                     )}
                                 </div>
                             </div>
