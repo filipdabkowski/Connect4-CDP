@@ -24,6 +24,12 @@ WIN_SCORE = 1_000_000
 
 @dataclass(frozen=True)
 class MoveSuggestion:
+	"""Bot move recommendation produced by the minimax search.
+
+	Input: the chosen column, its evaluated score, and all legal root moves.
+	Returns: an immutable object passed back to HTTP and websocket callers.
+	"""
+
 	column: int
 	score: int
 	valid_moves: list[int]
@@ -36,6 +42,14 @@ def suggest_bot_move(
 	use_multiprocessing: bool = False,
 	max_workers: int | None = None,
 ) -> MoveSuggestion:
+	"""Choose the strongest legal bot move for the current board.
+
+	Input: a board, the bot's symbol, search depth, and optional multiprocessing
+	settings for root-move evaluation.
+	Returns: MoveSuggestion with the selected zero-based column and score.
+	Raises: ValueError when the board is invalid, full, or already terminal.
+	"""
+
 	board = normalize_board(board)
 	bot_symbol = normalize_symbol(bot_symbol)
 	depth = normalize_depth(depth)
@@ -69,6 +83,13 @@ def suggest_bot_move(
 
 
 def normalize_symbol(symbol: int) -> int:
+	"""Convert and validate the bot's player symbol.
+
+	Input: any value intended to represent PLAYER_ONE or PLAYER_TWO.
+	Returns: the validated integer symbol.
+	Raises: ValueError when the value is not 1 or 2.
+	"""
+
 	try:
 		symbol = int(symbol)
 	except (TypeError, ValueError) as exc:
@@ -81,6 +102,13 @@ def normalize_symbol(symbol: int) -> int:
 
 
 def normalize_depth(depth: int) -> int:
+	"""Clamp search depth to a practical range.
+
+	Input: any value intended to be an integer minimax depth.
+	Returns: an integer between 1 and 7.
+	Raises: ValueError when the value cannot be converted to an integer.
+	"""
+
 	try:
 		depth = int(depth)
 	except (TypeError, ValueError) as exc:
@@ -90,6 +118,12 @@ def normalize_depth(depth: int) -> int:
 
 
 def evaluate_root_moves(board: Board, bot_symbol: int, depth: int, moves: list[int]) -> tuple[int, int]:
+	"""Score candidate root moves in the current process.
+
+	Input: the board, bot symbol, remaining search depth, and ordered legal moves.
+	Returns: a tuple of the best column and its score.
+	"""
+
 	best_column = moves[0]
 	best_score = -WIN_SCORE * 10
 
@@ -118,6 +152,13 @@ def evaluate_root_moves_in_processes(
 	moves: list[int],
 	max_workers: int | None = None,
 ) -> tuple[int, int]:
+	"""Score root moves in parallel worker processes.
+
+	Input: the board, bot symbol, remaining search depth, legal root moves, and
+	optional maximum worker count.
+	Returns: a tuple of the best column and its score.
+	"""
+
 	worker_count = normalize_worker_count(max_workers, len(moves))
 
 	# Every legal move can be scored independently. multiprocessing.Pool starts
@@ -137,6 +178,12 @@ def evaluate_root_moves_in_processes(
 
 
 def normalize_worker_count(max_workers: int | None, move_count: int) -> int:
+	"""Bound multiprocessing workers to useful legal moves.
+
+	Input: an optional worker limit and the number of moves to evaluate.
+	Returns: at least one worker and never more workers than moves.
+	"""
+
 	if max_workers is None:
 		return min(move_count, COLUMNS)
 
@@ -144,6 +191,12 @@ def normalize_worker_count(max_workers: int | None, move_count: int) -> int:
 
 
 def worker_score_root_move(board: Board, column: int, bot_symbol: int, depth: int) -> tuple[int, int]:
+	"""Evaluate one root move inside a multiprocessing worker.
+
+	Input: the board, column to test, bot symbol, and original search depth.
+	Returns: the tested column and the minimax score for that move.
+	"""
+
 	child = drop_piece(board, column, bot_symbol)
 	score = minimax(
 		board=child,
@@ -164,6 +217,14 @@ def minimax(
 	maximizing_player: bool,
 	bot_symbol: int,
 ) -> tuple[int | None, int]:
+	"""Run minimax with alpha-beta pruning from the given board.
+
+	Input: a board, remaining depth, alpha/beta bounds, whose turn the search is
+	modeling, and the bot symbol.
+	Returns: the best column for this node and its score; terminal leaves return
+	None for the column.
+	"""
+
 	valid_moves = get_valid_moves(board)
 	terminal = is_terminal_node(board)
 	opponent_symbol = get_opponent_symbol(bot_symbol)
@@ -171,8 +232,10 @@ def minimax(
 	if depth == 0 or terminal:
 		if terminal:
 			if has_winning_line(board, bot_symbol):
+				# Earlier wins are better, so remaining depth adds urgency.
 				return None, WIN_SCORE + depth
 			if has_winning_line(board, opponent_symbol):
+				# Earlier losses are worse, which nudges the bot to delay defeat.
 				return None, -WIN_SCORE - depth
 			return None, 0
 
@@ -194,6 +257,7 @@ def minimax(
 
 			alpha = max(alpha, best_score)
 			if alpha >= beta:
+				# The minimizing player already has a better path elsewhere.
 				break
 
 		return best_column, best_score
@@ -211,14 +275,22 @@ def minimax(
 
 		beta = min(beta, best_score)
 		if alpha >= beta:
+			# The maximizing player already has a better path elsewhere.
 			break
 
 	return best_column, best_score
 
 
 def score_position(board: Board, symbol: int) -> int:
+	"""Estimate how favorable a non-terminal board is for a symbol.
+
+	Input: a board and the symbol being evaluated.
+	Returns: a heuristic score; higher values favor the supplied symbol.
+	"""
+
 	score = 0
 	center_column = [board[row][COLUMNS // 2] for row in range(ROWS)]
+	# Center control creates more possible four-in-a-row lines than edge play.
 	score += center_column.count(symbol) * 6
 
 	for row in range(ROWS):
@@ -245,6 +317,13 @@ def score_position(board: Board, symbol: int) -> int:
 
 
 def score_window(window: list[int], symbol: int) -> int:
+	"""Score a four-cell slice of the board.
+
+	Input: a window of four cells and the symbol being evaluated.
+	Returns: a positive score for attacking chances and a negative score when an
+	opponent threat should be blocked.
+	"""
+
 	opponent_symbol = get_opponent_symbol(symbol)
 	score = 0
 
@@ -256,10 +335,17 @@ def score_window(window: list[int], symbol: int) -> int:
 		score += 10
 
 	if window.count(opponent_symbol) == 3 and window.count(EMPTY) == 1:
+		# Blocking an immediate threat is slightly more valuable than making one.
 		score -= 120
 
 	return score
 
 
 def order_moves_by_center(moves: list[int]) -> list[int]:
+	"""Prefer center columns before edge columns.
+
+	Input: legal zero-based column indexes.
+	Returns: the same moves sorted by distance from the center column.
+	"""
+
 	return sorted(moves, key=lambda column: abs((COLUMNS // 2) - column))

@@ -6,6 +6,11 @@ import HomePage from "./pages/Home.tsx"
 import {ProtectedRoute} from "./routes/ProtectedRoute.tsx";
 import {PublicRoute} from "./routes/PublicRoute.tsx";
 
+/**
+ * Define the application's route tree.
+ *
+ * @returns React Router routes with public/authenticated guards applied.
+ */
 function App() {
 
     return (

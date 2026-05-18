@@ -12,6 +12,12 @@ type FormInputProps = {
     validMessage?: string[];
 };
 
+/**
+ * Render a labeled input with optional validation messages.
+ *
+ * @param props - Input attributes, current value, change handler, and validation state.
+ * @returns A controlled input field with accessible label/error state.
+ */
 export default function FormInput({type, name, label, value, required, placeholder, onChange, valid, validMessage}: FormInputProps) {
     const id = useId();
 

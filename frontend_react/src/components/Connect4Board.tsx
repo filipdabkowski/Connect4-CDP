@@ -19,6 +19,12 @@ const EMPTY_BOARD: BoardState = Array.from(
     () => Array.from({length: COLUMNS}, () => 0 as BoardCell),
 );
 
+/**
+ * Select visual styling for a board cell value.
+ *
+ * @param value - Board cell value from the backend.
+ * @returns Tailwind classes for empty, player-one, or player-two cells.
+ */
 function getCellClasses(value: BoardCell) {
     if (value === 1) {
         return "border-red-200/40 bg-red-500 shadow-[inset_0_10px_18px_rgba(254,202,202,0.45),0_5px_12px_rgba(127,29,29,0.55)]";
@@ -31,6 +37,12 @@ function getCellClasses(value: BoardCell) {
     return "border-slate-950/10 bg-slate-950/80 shadow-[inset_0_10px_18px_rgba(15,23,42,0.95),0_4px_10px_rgba(15,23,42,0.35)]";
 }
 
+/**
+ * Render the interactive Connect 4 board.
+ *
+ * @param props - Board state, turn metadata, and optional column-select handler.
+ * @returns A board element with one invisible button per playable column.
+ */
 export default function Connect4Board({
     active = false,
     statusLabel,
@@ -55,17 +67,17 @@ export default function Connect4Board({
     const columns = Array.from({length: COLUMNS}, (_, column) => column);
 
     return (
-        <div className="relative mx-auto w-full max-w-2xl">
-            <div className="absolute inset-x-6 -top-6 h-24 rounded-full bg-cyan-400/25 blur-3xl" />
+        <div className="relative mx-auto w-full max-w-2xl min-w-0 lg:max-w-[min(42rem,calc((100vh-13rem)*7/6))]">
+            <div className="absolute inset-x-6 -top-4 h-20 rounded-full bg-cyan-400/25 blur-3xl sm:-top-6 sm:h-24" />
             <div
                 className={`
-                    relative overflow-hidden rounded-[2rem] border border-white/10 p-4 shadow-2xl shadow-slate-950/40 backdrop-blur
+                    relative overflow-hidden rounded-lg border border-white/10 p-3 shadow-2xl shadow-slate-950/40 backdrop-blur sm:p-4
                     ${active ? "bg-slate-900/85" : "bg-slate-900/70"}
                 `}
             >
-                <div className="mb-4 flex items-center justify-between gap-4">
-                    <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-200/70">
+                <div className="mb-3 hidden flex-wrap items-start justify-between gap-3 sm:mb-4 sm:flex sm:gap-4">
+                    <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200/70 sm:tracking-[0.35em]">
                             Connect 4 Board
                         </p>
                         <p className="mt-1 text-sm text-slate-300">
@@ -73,15 +85,15 @@ export default function Connect4Board({
                         </p>
                     </div>
                     {statusLabel && (
-                        <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-xs font-medium text-cyan-100">
+                        <span className="shrink-0 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-xs font-medium text-cyan-100">
                             {statusLabel}
                         </span>
                     )}
                 </div>
 
-                <div className="relative rounded-[1.75rem] bg-gradient-to-b from-sky-400 via-blue-500 to-blue-700 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]">
-                    <div className="pointer-events-none absolute inset-x-4 top-0 h-10 rounded-b-[2rem] bg-white/15 blur-xl" />
-                    <div className="grid grid-cols-7 gap-2 sm:gap-3">
+                <div className="relative rounded-lg bg-gradient-to-b from-sky-400 via-blue-500 to-blue-700 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)] sm:p-3">
+                    <div className="pointer-events-none absolute inset-x-4 top-0 h-10 rounded-b-lg bg-white/15 blur-xl" />
+                    <div className="grid grid-cols-7 gap-1.5 sm:gap-3">
                         {cells.map((cell) => (
                             <div
                                 key={cell.index}
@@ -94,7 +106,7 @@ export default function Connect4Board({
                             </div>
                         ))}
                     </div>
-                    <div className="absolute inset-3 grid grid-cols-7 gap-2 sm:gap-3">
+                    <div className="absolute inset-2 grid grid-cols-7 gap-1.5 sm:inset-3 sm:gap-3">
                         {columns.map((column) => {
                             const columnOpen = (board[0]?.[column] ?? 1) === 0;
                             const enabled = canMove && columnOpen && !movePending;

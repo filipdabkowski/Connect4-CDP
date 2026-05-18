@@ -17,10 +17,22 @@ type RoomAction = {
     onClick: () => void;
 };
 
+/**
+ * Normalize user-entered room codes before they reach the API.
+ *
+ * @param value - Raw room-code input from the form.
+ * @returns Uppercase code without whitespace.
+ */
 function normalizeRoomCode(value: string) {
     return value.trim().replace(/\s+/g, "").toUpperCase();
 }
 
+/**
+ * Build the websocket URL that matches the configured REST API origin.
+ *
+ * @param roomCode - Normalized room code to connect to.
+ * @returns Absolute ws:// or wss:// URL with the current access token query parameter.
+ */
 function buildGameSocketUrl(roomCode: string) {
     const apiBaseUrl = api.defaults.baseURL ?? "http://localhost:8000/api/";
     const backendUrl = new URL(apiBaseUrl);
@@ -31,6 +43,13 @@ function buildGameSocketUrl(roomCode: string) {
     return `${protocol}//${backendUrl.host}/ws/game/${roomCode}/${tokenQuery}`;
 }
 
+/**
+ * Extract a useful message from an unknown API error.
+ *
+ * @param error - Error thrown by an API call.
+ * @param fallback - Message to use when the error does not match the expected shape.
+ * @returns User-facing error message.
+ */
 function getApiErrorMessage(error: unknown, fallback: string) {
     if (axios.isAxiosError<{message?: string}>(error)) {
         return error.response?.data?.message ?? fallback;
@@ -39,6 +58,12 @@ function getApiErrorMessage(error: unknown, fallback: string) {
     return fallback;
 }
 
+/**
+ * Narrow an unknown websocket payload to a room-state event.
+ *
+ * @param payload - Parsed JSON payload from the websocket.
+ * @returns True when the payload has the minimum RoomState fields.
+ */
 function isRoomState(payload: unknown): payload is RoomState {
     if (!payload || typeof payload !== "object") return false;
 
@@ -46,6 +71,12 @@ function isRoomState(payload: unknown): payload is RoomState {
     return typeof candidate.roomCode === "string" && typeof candidate.status === "string";
 }
 
+/**
+ * Narrow an unknown websocket payload to a room-error event.
+ *
+ * @param payload - Parsed JSON payload from the websocket.
+ * @returns True when the payload is a RoomErrorResponse.
+ */
 function isRoomError(payload: unknown): payload is RoomErrorResponse {
     if (!payload || typeof payload !== "object") return false;
 
@@ -53,6 +84,13 @@ function isRoomError(payload: unknown): payload is RoomErrorResponse {
     return candidate.type === "room_error" && typeof candidate.message === "string";
 }
 
+/**
+ * Build the headline describing the current matchup.
+ *
+ * @param roomState - Current room state or null when no room is joined.
+ * @param fallbackUsername - Signed-in username used before the first room echo arrives.
+ * @returns Heading text for the room panel.
+ */
 function buildRoomHeading(roomState: RoomState | null, fallbackUsername?: string) {
     if (!roomState) return "Private Connect 4";
 
@@ -66,6 +104,13 @@ function buildRoomHeading(roomState: RoomState | null, fallbackUsername?: string
     return `${player1} vs ${player2}`;
 }
 
+/**
+ * Resolve the signed-in user's board symbol in a room.
+ *
+ * @param roomState - Current room state or null.
+ * @param username - Signed-in username.
+ * @returns Player symbol for this user, or null when they are not a participant.
+ */
 function getCurrentUserSymbol(roomState: RoomState | null, username?: string): PlayerSymbol | null {
     if (!roomState || !username) return null;
 
@@ -74,6 +119,13 @@ function getCurrentUserSymbol(roomState: RoomState | null, username?: string): P
     return null;
 }
 
+/**
+ * Describe whose turn it is or how the game ended.
+ *
+ * @param roomState - Current room state.
+ * @param username - Signed-in username for personalized messages.
+ * @returns Short status text for the board and room controls.
+ */
 function getTurnMessage(roomState: RoomState, username?: string) {
     if (roomState.status === "finished") {
         if (roomState.gameResult?.isDraw) {
@@ -102,6 +154,13 @@ function getTurnMessage(roomState: RoomState, username?: string) {
     return `${roomState.currentPlayer.username ?? "Opponent"}'s move.`;
 }
 
+/**
+ * Combine transient event details with the current turn message.
+ *
+ * @param roomState - Current room state including optional event context.
+ * @param username - Signed-in username for personalized messages.
+ * @returns User-facing room status text.
+ */
 function getRoomStatusMessage(roomState: RoomState, username?: string) {
     const turnMessage = getTurnMessage(roomState, username);
 
@@ -117,6 +176,11 @@ function getRoomStatusMessage(roomState: RoomState, username?: string) {
     return turnMessage;
 }
 
+/**
+ * Main authenticated game room screen.
+ *
+ * @returns The lobby, room controls, and interactive Connect 4 board.
+ */
 export default function HomePage() {
     const {user, logout} = useAuth();
     const socketRef = useRef<WebSocket | null>(null);
@@ -130,6 +194,12 @@ export default function HomePage() {
     const [statusMessage, setStatusMessage] = useState("No room joined yet.");
     const [movePending, setMovePending] = useState(false);
 
+    /**
+     * Apply the authoritative room state returned by HTTP or websocket.
+     *
+     * @param nextRoomState - Server-confirmed room state.
+     * @returns Nothing after updating local UI state.
+     */
     function applyRoomState(nextRoomState: RoomState) {
         setRoomState(nextRoomState);
         setActiveRoomCode(nextRoomState.roomCode);
@@ -138,6 +208,11 @@ export default function HomePage() {
         setStatusMessage(getRoomStatusMessage(nextRoomState, user?.username));
     }
 
+    /**
+     * Close the current websocket while suppressing reconnect-style error UI.
+     *
+     * @returns Nothing.
+     */
     function disconnectSocket() {
         if (!socketRef.current) return;
 
@@ -146,6 +221,12 @@ export default function HomePage() {
         socketRef.current = null;
     }
 
+    /**
+     * Open a websocket connection for the selected room.
+     *
+     * @param roomCode - Normalized room code returned by the API.
+     * @returns Nothing; websocket callbacks update React state over time.
+     */
     function connectToRoom(roomCode: string) {
         disconnectSocket();
         manualDisconnectRef.current = false;
@@ -216,6 +297,12 @@ export default function HomePage() {
         };
     }
 
+    /**
+     * Join a room or leave the current one when already connected.
+     *
+     * @param event - Form submit event from the room-code form.
+     * @returns Nothing after the request finishes.
+     */
     async function handleJoinRoom(event: React.SubmitEvent<HTMLFormElement>) {
         event.preventDefault();
 
@@ -251,6 +338,11 @@ export default function HomePage() {
         }
     }
 
+    /**
+     * Convert the active room into a bot game.
+     *
+     * @returns Nothing after the server accepts or rejects the request.
+     */
     async function handleStartBotGame() {
         const roomCode = activeRoomCode;
 
@@ -276,6 +368,11 @@ export default function HomePage() {
         }
     }
 
+    /**
+     * Create a new room using the optional preferred code.
+     *
+     * @returns Nothing after creating the room or displaying an error.
+     */
     async function handleCreateRoom() {
         const preferredCode = normalizeRoomCode(roomInput);
 
@@ -296,6 +393,11 @@ export default function HomePage() {
         }
     }
 
+    /**
+     * Reset a finished room for another round.
+     *
+     * @returns Nothing after the reset request completes.
+     */
     async function handleResetRoom() {
         const roomCode = activeRoomCode;
 
@@ -321,6 +423,12 @@ export default function HomePage() {
         }
     }
 
+    /**
+     * Submit a column choice over the websocket.
+     *
+     * @param column - Zero-based column index selected on the board.
+     * @returns Nothing after sending the move or updating validation feedback.
+     */
     function handleBoardColumnSelect(column: number) {
         const socket = socketRef.current;
         const playerSymbol = getCurrentUserSymbol(roomState, user?.username);
@@ -331,6 +439,7 @@ export default function HomePage() {
         }
 
         if (roomState.currentPlayer.symbol !== playerSymbol) {
+            // Trust the server turn state so local clicks cannot race ahead of broadcasts.
             setStatusMessage(getTurnMessage(roomState, user?.username));
             return;
         }
@@ -353,6 +462,11 @@ export default function HomePage() {
         }));
     }
 
+    /**
+     * Leave the active room and reset all local room state.
+     *
+     * @returns Nothing after cleanup, even if the leave request fails.
+     */
     async function handleLeaveRoom() {
         const roomCode = activeRoomCode;
 
@@ -458,10 +572,10 @@ export default function HomePage() {
 
     return (
         <div className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.18),transparent_28%),linear-gradient(180deg,#0f172a_0%,#020617_100%)] text-white">
-            <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-6 py-8 lg:px-10">
-                <header className="flex items-center justify-between gap-4">
-                    <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-200/70">
+            <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8">
+                <header className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200/70 sm:tracking-[0.35em]">
                             Connect4 Online
                         </p>
                         <p className="mt-2 text-sm text-slate-300">
@@ -477,22 +591,24 @@ export default function HomePage() {
                     </button>
                 </header>
 
-                <main className="flex flex-1 items-center py-10">
-                    <div className="grid w-full items-center gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)]">
-                        <section className="max-w-2xl">
-                            <div className="inline-flex rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-50">
-                                {isInRoom ? `Room ${activeRoomCode}` : "Lobby"}
+                <main className="flex flex-1 items-start py-4 sm:py-6 lg:items-center lg:py-10">
+                    <div className="grid w-full items-center gap-4 sm:gap-6 lg:grid-cols-[minmax(320px,0.85fr)_minmax(430px,1.15fr)] lg:gap-10">
+                        <section className="order-2 w-full max-w-2xl lg:order-1 lg:max-w-none">
+                            <div className="hidden lg:block">
+                                <div className="inline-flex rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-50">
+                                    {isInRoom ? `Room ${activeRoomCode}` : "Lobby"}
+                                </div>
+
+                                <h1 className="mt-6 max-w-xl text-5xl font-black tracking-tight text-white">
+                                    {heading}
+                                </h1>
+                                <p className="mt-4 max-w-xl text-lg leading-8 text-slate-300">
+                                    {description}
+                                </p>
                             </div>
 
-                            <h1 className="mt-6 max-w-xl text-4xl font-black tracking-tight text-white sm:text-5xl">
-                                {heading}
-                            </h1>
-                            <p className="mt-4 max-w-xl text-lg leading-8 text-slate-300">
-                                {description}
-                            </p>
-
-                            <div className="mt-8 rounded-[1.75rem] border border-white/10 bg-white/5 p-6 shadow-2xl shadow-slate-950/25 backdrop-blur">
-                                <form className="space-y-5" onSubmit={handleJoinRoom}>
+                            <div className="rounded-lg border border-white/10 bg-white/5 p-4 shadow-2xl shadow-slate-950/25 backdrop-blur sm:p-5 lg:mt-8 lg:p-6">
+                                <form className="space-y-4 sm:space-y-5" onSubmit={handleJoinRoom}>
                                     <FormInput
                                         type="text"
                                         name="roomCode"
@@ -538,7 +654,7 @@ export default function HomePage() {
                             </div>
                         </section>
 
-                        <section>
+                        <section className="order-1 w-full min-w-0 lg:order-2">
                             <Connect4Board
                                 active={isInRoom}
                                 statusLabel={roomStatusLabel}

@@ -23,11 +23,24 @@ Board = list[list[int]]
 
 
 class GameMoveError(ValueError):
+	"""Raised when a requested game action would violate Connect 4 rules.
+
+	Input: an optional error message describing the invalid move or state.
+	Returns: no value; callers catch this exception to send user-facing errors.
+	"""
+
 	pass
 
 
 @dataclass(frozen=True)
 class MoveResult:
+	"""Immutable description of a validated move and the room state it implies.
+
+	Input: the board after the move, the played column, the active symbol, the
+	next turn, optional winner/draw state, and socket message metadata.
+	Returns: a dataclass instance consumed by persistence and websocket code.
+	"""
+
 	board: Board
 	column: int
 	player_symbol: int
@@ -39,14 +52,33 @@ class MoveResult:
 
 	@property
 	def is_finished(self):
+		"""Return whether this move ended the game.
+
+		Input: no arguments; reads the result's winner and draw fields.
+		Returns: True when a winner exists or the board ended in a draw.
+		"""
+
 		return self.winner_symbol is not None or self.is_draw
 
 
 def create_empty_board() -> Board:
+	"""Create a fresh Connect 4 board in row-major order.
+
+	Input: no arguments.
+	Returns: a 6x7 board filled with EMPTY cells.
+	"""
+
 	return [[EMPTY for _ in range(COLUMNS)] for _ in range(ROWS)]
 
 
 def normalize_board(board: Board) -> Board:
+	"""Validate and copy a board supplied by storage or a request.
+
+	Input: a nested list expected to contain ROWS rows and COLUMNS cells per row.
+	Returns: a new board list containing only EMPTY, PLAYER_ONE, or PLAYER_TWO.
+	Raises: GameMoveError when shape or cell values are invalid.
+	"""
+
 	if not isinstance(board, list) or len(board) != ROWS:
 		raise GameMoveError(f"Board must contain {ROWS} rows.")
 
@@ -68,6 +100,13 @@ def normalize_board(board: Board) -> Board:
 
 
 def normalize_symbol(symbol: int) -> int:
+	"""Convert and validate a player symbol.
+
+	Input: any value intended to represent PLAYER_ONE or PLAYER_TWO.
+	Returns: the validated integer symbol.
+	Raises: GameMoveError when the value is not 1 or 2.
+	"""
+
 	try:
 		symbol = int(symbol)
 	except (TypeError, ValueError) as exc:
@@ -80,6 +119,13 @@ def normalize_symbol(symbol: int) -> int:
 
 
 def normalize_column(column) -> int:
+	"""Convert and validate a playable board column.
+
+	Input: any value intended to represent a zero-based column index.
+	Returns: the validated column integer.
+	Raises: GameMoveError when the value is not inside the board.
+	"""
+
 	try:
 		column = int(column)
 	except (TypeError, ValueError) as exc:
@@ -92,16 +138,30 @@ def normalize_column(column) -> int:
 
 
 def get_valid_moves(board: Board) -> list[int]:
+	"""List columns that can still accept a piece.
+
+	Input: a normalized board.
+	Returns: zero-based column indexes whose top cell is empty.
+	"""
+
 	return [column for column in range(COLUMNS) if board[0][column] == EMPTY]
 
 
 def drop_piece(board: Board, column: int, symbol: int) -> Board:
+	"""Return a new board after dropping a piece into a column.
+
+	Input: a board, zero-based column, and player symbol.
+	Returns: a copied board with the piece placed in the lowest open cell.
+	Raises: GameMoveError when the column or symbol is invalid, or the column is full.
+	"""
+
 	column = normalize_column(column)
 	symbol = normalize_symbol(symbol)
 
 	if board[0][column] != EMPTY:
 		raise GameMoveError("Column is full.")
 
+	# Copy rows so callers can compare old and new state without accidental mutation.
 	next_board = [row.copy() for row in board]
 	for row in range(ROWS - 1, -1, -1):
 		if next_board[row][column] == EMPTY:
@@ -112,8 +172,16 @@ def drop_piece(board: Board, column: int, symbol: int) -> Board:
 
 
 def has_winning_line(board: Board, symbol: int) -> bool:
+	"""Check whether a symbol has four connected cells.
+
+	Input: a board and the symbol to evaluate.
+	Returns: True when a horizontal, vertical, or diagonal line exists.
+	Raises: GameMoveError when the symbol is invalid.
+	"""
+
 	symbol = normalize_symbol(symbol)
 
+	# Scan only positions that can fit a four-cell window in each direction.
 	for row in range(ROWS):
 		for column in range(COLUMNS - 3):
 			if all(board[row][column + offset] == symbol for offset in range(CONNECT_LENGTH)):
@@ -138,6 +206,12 @@ def has_winning_line(board: Board, symbol: int) -> bool:
 
 
 def is_terminal_node(board: Board) -> bool:
+	"""Return whether a board has no further meaningful game states.
+
+	Input: a board.
+	Returns: True for a win by either player or a full board draw.
+	"""
+
 	return (
 		has_winning_line(board, PLAYER_ONE)
 		or has_winning_line(board, PLAYER_TWO)
@@ -146,10 +220,24 @@ def is_terminal_node(board: Board) -> bool:
 
 
 def get_opponent_symbol(symbol: int) -> int:
+	"""Return the opposite Connect 4 player symbol.
+
+	Input: PLAYER_ONE or PLAYER_TWO.
+	Returns: PLAYER_TWO for PLAYER_ONE, otherwise PLAYER_ONE.
+	Raises: GameMoveError when the input is not a valid symbol.
+	"""
+
 	return PLAYER_ONE if normalize_symbol(symbol) == PLAYER_TWO else PLAYER_TWO
 
 
 def get_room_player_symbol(room, player_id) -> int:
+	"""Resolve a room participant to their board symbol.
+
+	Input: a Room-like object with player ids and an authenticated player id.
+	Returns: PLAYER_ONE or PLAYER_TWO for the matching room slot.
+	Raises: GameMoveError when the player is not in the room.
+	"""
+
 	if room.player_1_id == player_id:
 		return PLAYER_ONE
 
@@ -160,6 +248,14 @@ def get_room_player_symbol(room, player_id) -> int:
 
 
 def process_room_move(room, player_id, column) -> MoveResult:
+	"""Validate and apply the human player's move rules for a room.
+
+	Input: a Room-like object, the moving player's id, and a zero-based column.
+	Returns: MoveResult describing the updated board, next turn, and end state.
+	Raises: GameMoveError when authentication, room status, turn order, or column
+	selection makes the move illegal.
+	"""
+
 	if not player_id:
 		raise GameMoveError("You must be signed in to make a move.")
 
@@ -175,6 +271,7 @@ def process_room_move(room, player_id, column) -> MoveResult:
 	if room.current_turn != player_symbol:
 		raise GameMoveError("It is not your turn.")
 
+	# Room.board comes from JSON storage, so validate shape and values before using it.
 	next_board = drop_piece(normalize_board(room.board), column, player_symbol)
 	if has_winning_line(next_board, player_symbol):
 		return MoveResult(

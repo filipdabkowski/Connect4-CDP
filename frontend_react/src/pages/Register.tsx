@@ -14,6 +14,11 @@ type RegisterFieldErrors = {
     detail?: string;
 };
 
+/**
+ * Render the registration form and create a new player account.
+ *
+ * @returns The registration page.
+ */
 export default function RegisterPage() {
     const {register, isAuth} = useAuth();
     const navigate = useNavigate();
@@ -30,26 +35,37 @@ export default function RegisterPage() {
     })
     const [errMessage, setErrMessage] = useState<RegisterFieldErrors>()
 
+    /**
+     * Update one form field and clear that field's invalid state.
+     *
+     * @param e - Input change event for a registration field.
+     * @returns Nothing after updating form state.
+     */
     function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
         const {name, value} = e.target;
-        // Update form state, replace changed value
         setForm((prevState) => ({
             ...prevState,
             [name]: value
         }));
-        // After a change of invalid field assume it will be valid
+        // Clear field-level styling immediately so users get fresh feedback after typing.
         setValid((prevState) => ({
             ...prevState,
             [name]: true
         }));
     }
 
+    /**
+     * Validate and submit the registration form.
+     *
+     * @param e - Form submit event.
+     * @returns Nothing after navigation or validation feedback.
+     */
     async function handleSubmit(e: React.SubmitEvent) {
         e.preventDefault();
-        // reset and assume it will be correct
+        // Reset first so stale validation messages do not bleed into a new attempt.
         setValid({username: true, password: true, passwordConfirm: true});
         setErrMessage({username: [], password: [], passwordConfirm: []});
-        // check if all fields are filled
+
         if (!form.username || !form.password || !form.passwordConfirm) {
             setValid({username: !!form.username, password: !!form.password, passwordConfirm: !!form.passwordConfirm});
             setErrMessage({
@@ -59,7 +75,7 @@ export default function RegisterPage() {
             });
             return
         }
-        // check if passwords match
+
         if (form.password != form.passwordConfirm) {
             setValid((prevState) => ({
                 ...prevState,
@@ -94,8 +110,8 @@ export default function RegisterPage() {
         }
     }
 
-    // on load
     useEffect(() => {
+        // Registration is only useful for guests; signed-in users go straight to the game.
         if (isAuth) {
             navigate(ROUTES.HOME);
         }

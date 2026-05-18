@@ -51,12 +51,24 @@ export type LeaveRoomResponse = RoomState;
 export type ResetRoomResponse = RoomState;
 export type StartBotGameResponse = RoomState;
 
+/**
+ * Create a room for the authenticated player.
+ *
+ * @param payload - Optional preferred room code.
+ * @returns The newly created room state.
+ */
 export async function createRoom(payload: CreateRoomPayload): Promise<CreateRoomResponse> {
     const body = payload.code ? { code: payload.code } : {};
     const response = await api.post<CreateRoomResponse>("/game/rooms/create/", body);
     return response.data;
 }
 
+/**
+ * Join a room by code.
+ *
+ * @param roomCode - Human-entered room code; whitespace/case are normalized before sending.
+ * @returns The joined room state.
+ */
 export async function joinRoom(roomCode: string): Promise<JoinRoomResponse> {
     const code = roomCode.trim().toUpperCase();
     const response = await api.post<JoinRoomResponse>(
@@ -66,6 +78,12 @@ export async function joinRoom(roomCode: string): Promise<JoinRoomResponse> {
     return response.data;
 }
 
+/**
+ * Leave the active room.
+ *
+ * @param roomCode - Room code to leave; whitespace/case are normalized before sending.
+ * @returns The room state after this player leaves.
+ */
 export async function leaveRoom(roomCode: string): Promise<LeaveRoomResponse> {
     const code = roomCode.trim().toUpperCase();
     const response = await api.post<LeaveRoomResponse>(
@@ -75,6 +93,12 @@ export async function leaveRoom(roomCode: string): Promise<LeaveRoomResponse> {
     return response.data;
 }
 
+/**
+ * Reset a finished room for another round.
+ *
+ * @param roomCode - Room code to reset; whitespace/case are normalized before sending.
+ * @returns The reset room state.
+ */
 export async function resetRoom(roomCode: string): Promise<ResetRoomResponse> {
     const code = roomCode.trim().toUpperCase();
     const response = await api.post<ResetRoomResponse>(
@@ -84,6 +108,12 @@ export async function resetRoom(roomCode: string): Promise<ResetRoomResponse> {
     return response.data;
 }
 
+/**
+ * Convert a waiting room into a bot game.
+ *
+ * @param roomCode - Room code to update; whitespace/case are normalized before sending.
+ * @returns The bot-enabled room state.
+ */
 export async function startBotGame(roomCode: string): Promise<StartBotGameResponse> {
     const code = roomCode.trim().toUpperCase();
     const response = await api.post<StartBotGameResponse>(

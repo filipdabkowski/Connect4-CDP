@@ -7,10 +7,21 @@ const ACCESS_TOKEN_KEY = "access_token";
 const REFRESH_TOKEN_COOKIE = "refresh_token";
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
+/**
+ * Store the refresh token in a same-site cookie.
+ *
+ * @param token - Refresh token returned by the backend.
+ * @returns Nothing.
+ */
 function setRefreshTokenCookie(token: string) {
     document.cookie = `${REFRESH_TOKEN_COOKIE}=${encodeURIComponent(token)}; path=/; max-age=${7 * 24 * 60 * 60}; samesite=lax`;
 }
 
+/**
+ * Read the refresh token from document.cookie.
+ *
+ * @returns The decoded refresh token, or null when missing.
+ */
 function getRefreshTokenCookie() {
     const prefix = `${REFRESH_TOKEN_COOKIE}=`;
     const entry = document.cookie
@@ -20,14 +31,30 @@ function getRefreshTokenCookie() {
     return entry ? decodeURIComponent(entry.slice(prefix.length)) : null;
 }
 
+/**
+ * Remove the refresh token cookie.
+ *
+ * @returns Nothing.
+ */
 function clearRefreshTokenCookie() {
     document.cookie = `${REFRESH_TOKEN_COOKIE}=; path=/; max-age=0; samesite=lax`;
 }
 
+/**
+ * Provide authentication state and actions to the React tree.
+ *
+ * @param children - Components that need access to auth state.
+ * @returns An AuthContext provider element.
+ */
 export function AuthProvider({children}: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const refreshIntervalRef = useRef<number | null>(null);
 
+    /**
+     * Refresh the access token from the stored refresh token.
+     *
+     * @returns The new access token, or null when refresh fails.
+     */
     async function refreshSession() {
         const refreshToken = getRefreshTokenCookie();
         if (!refreshToken) return null;
@@ -44,6 +71,11 @@ export function AuthProvider({children}: { children: React.ReactNode }) {
         }
     }
 
+    /**
+     * Stop the scheduled access-token refresh loop.
+     *
+     * @returns Nothing.
+     */
     function stopRefreshLoop() {
         if (refreshIntervalRef.current !== null) {
             window.clearInterval(refreshIntervalRef.current);
@@ -51,6 +83,11 @@ export function AuthProvider({children}: { children: React.ReactNode }) {
         }
     }
 
+    /**
+     * Start a single interval that refreshes the access token.
+     *
+     * @returns Nothing.
+     */
     function startRefreshLoop() {
         stopRefreshLoop();
         refreshIntervalRef.current = window.setInterval(() => {
@@ -58,18 +95,22 @@ export function AuthProvider({children}: { children: React.ReactNode }) {
         }, REFRESH_INTERVAL_MS);
     }
 
-    // Initialize user
     useEffect(() => {
+        /**
+         * Restore the current user from existing tokens on page load.
+         *
+         * @returns Nothing after user state is loaded or cleared.
+         */
         async function loadUser() {
             let token = localStorage.getItem(ACCESS_TOKEN_KEY);
             if (!token && getRefreshTokenCookie()) {
                 token = await refreshSession();
             }
-            // defaults to null if no token present
+            // Leaving user as null keeps unauthenticated routes deterministic.
             if (!token) return;
 
             try {
-                // try to get my Player info
+                // A valid access token should load the player without forcing a refresh.
                 const me = await authApi.getMe();
                 setUser(me);
                 startRefreshLoop();
@@ -96,6 +137,12 @@ export function AuthProvider({children}: { children: React.ReactNode }) {
         };
     }, []);
     
+    /**
+     * Sign in, persist tokens, and load the current player.
+     *
+     * @param data - Login form credentials.
+     * @returns Nothing after auth state is updated.
+     */
     async function login(data: LoginPayload) {
         const res = await authApi.login(data)
         
@@ -107,6 +154,11 @@ export function AuthProvider({children}: { children: React.ReactNode }) {
         startRefreshLoop();
     }
 
+    /**
+     * Clear local auth state and stop background token refreshes.
+     *
+     * @returns Nothing.
+     */
     async function logout() {
         localStorage.removeItem(ACCESS_TOKEN_KEY);
         clearRefreshTokenCookie();
@@ -114,6 +166,12 @@ export function AuthProvider({children}: { children: React.ReactNode }) {
         setUser(null);
     }
     
+    /**
+     * Create a new account without signing in automatically.
+     *
+     * @param data - Registration form credentials.
+     * @returns Nothing after the API accepts the registration.
+     */
     async function register(data: RegisterPayload) {
         await authApi.register(data);
     }

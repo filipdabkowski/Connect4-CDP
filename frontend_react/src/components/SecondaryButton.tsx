@@ -4,6 +4,12 @@ type SecondaryButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
     children: ReactNode;
 };
 
+/**
+ * Render the secondary action button.
+ *
+ * @param props - Native button props plus button children.
+ * @returns A styled button element for secondary room actions.
+ */
 export default function SecondaryButton({
     children,
     className = "",

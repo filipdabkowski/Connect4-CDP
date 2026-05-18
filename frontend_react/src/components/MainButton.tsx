@@ -8,6 +8,12 @@ type MainButtonProps = {
   className?: string;
 };
 
+/**
+ * Render the primary form action button.
+ *
+ * @param props - Button content, click handler, type, disabled state, and extra classes.
+ * @returns A styled button element for primary actions.
+ */
 export default function MainButton({ children, onClick, type = "submit", disabled = false, className = "" }: MainButtonProps) {
   return (
     <button

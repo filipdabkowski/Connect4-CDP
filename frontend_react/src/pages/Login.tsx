@@ -13,6 +13,11 @@ type LoginFieldErrors = {
     detail?: string;
 };
 
+/**
+ * Render the login form and submit credentials to the auth provider.
+ *
+ * @returns The sign-in page.
+ */
 export default function LoginPage() {
     const {login} = useAuth();
     const navigate = useNavigate();
@@ -27,26 +32,37 @@ export default function LoginPage() {
     })
     const [errMessage, setErrMessage] = useState<LoginFieldErrors>()
 
+    /**
+     * Update one form field and clear that field's invalid state.
+     *
+     * @param e - Input change event for username or password.
+     * @returns Nothing after updating form state.
+     */
     function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
         const {name, value} = e.target;
-        // Update form state, replace changed value
         setForm((prevState) => ({
             ...prevState,
             [name]: value
         }));
-        // After a change of invalid field assume it will be valid
+        // Clear field-level styling immediately so users are not stuck in an error state while typing.
         setValid((prevState) => ({
             ...prevState,
             [name]: true
         }));
     }
 
+    /**
+     * Validate and submit the login form.
+     *
+     * @param e - Form submit event.
+     * @returns Nothing after navigation or validation feedback.
+     */
     async function submit(e: React.SubmitEvent) {
         e.preventDefault();
-        // reset and assume it will be correct
+        // Reset first so stale API errors do not survive a new attempt.
         setValid({username: true, password: true});
         setErrMessage({});
-        // check if both fields are filled
+
         if (!form.username || !form.password) {
             setValid({username: !!form.username, password: !!form.password})
             setErrMessage({

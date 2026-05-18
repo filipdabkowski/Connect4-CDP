@@ -11,6 +11,7 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
+    // Keep token attachment centralized so feature APIs stay focused on their payloads.
     const token = localStorage.getItem("access_token");
     if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;

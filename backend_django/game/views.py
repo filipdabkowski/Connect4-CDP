@@ -15,6 +15,12 @@ from player.models import Player
 
 
 def parse_bool(value):
+	"""Parse common HTTP truthy values into a boolean.
+
+	Input: a boolean, string, or any value from request data.
+	Returns: True for truthy string flags like "true" or "1"; otherwise bool(value).
+	"""
+
 	if isinstance(value, bool):
 		return value
 
@@ -25,6 +31,12 @@ def parse_bool(value):
 
 
 def broadcast_room_state(room, message_type="room_state", message=None):
+	"""Notify all websocket clients that a room state changed.
+
+	Input: a Room instance, a socket message type, and an optional user-facing message.
+	Returns: None; silently does nothing if no channel layer is configured.
+	"""
+
 	channel_layer = get_channel_layer()
 	if not channel_layer:
 		return
@@ -40,16 +52,29 @@ def broadcast_room_state(room, message_type="room_state", message=None):
 
 
 def get_room_with_players(room_id):
+	"""Fetch a room with related users needed by serializers.
+
+	Input: a room primary key.
+	Returns: a Room instance with player and winner user relations selected.
+	"""
+
 	return Room.objects.select_related("player_1__user", "player_2__user", "winner__user").get(pk=room_id)
 
 
 def remove_player_from_room(room, player_id):
+	"""Remove a player from a room and update its availability.
+
+	Input: a locked Room instance and the leaving player's id.
+	Returns: True when the room changed and listeners should be notified.
+	"""
+
 	update_fields = []
 
 	if room.player_1_id == player_id:
 		room.player_1 = None
 		update_fields.append("player_1")
 
+		# A bot game belongs to the creator; removing player 1 makes the bot match unusable.
 		if room.is_bot_game and room.game_status != Room.STATUS_FINISHED:
 			room.is_bot_game = False
 			update_fields.append("is_bot_game")
@@ -69,6 +94,12 @@ def remove_player_from_room(room, player_id):
 
 
 def add_player_to_room(room, player):
+	"""Place a player in the first open human slot.
+
+	Input: a locked Room instance and the Player attempting to join.
+	Returns: True when the player was added; False for bot rooms, duplicates, or full rooms.
+	"""
+
 	if room.is_bot_game:
 		return False
 
@@ -95,6 +126,13 @@ def add_player_to_room(room, player):
 
 
 def start_bot_game(room, player):
+	"""Turn a waiting human room into a bot room.
+
+	Input: a locked Room instance and the requesting Player.
+	Returns: True when the room was changed; False if it was already a bot room.
+	Raises: ValueError when the requester cannot start a bot game in this room.
+	"""
+
 	if room.player_1_id != player.pk:
 		raise ValueError("Only the room creator can start a bot game.")
 
@@ -116,6 +154,13 @@ def start_bot_game(room, player):
 
 
 def reset_room_game(room, player):
+	"""Reset a finished room for another round.
+
+	Input: a locked Room instance and the requesting Player.
+	Returns: None after replacing board, turn, winner, and status fields.
+	Raises: ValueError when the requester is not a room player or the game is active.
+	"""
+
 	if room.player_1_id != player.pk and room.player_2_id != player.pk:
 		raise ValueError("Only players in this room can reset the game.")
 
@@ -131,9 +176,21 @@ def reset_room_game(room, player):
 
 
 class CreateRoomView(APIView):
+	"""Create a new room owned by the authenticated player.
+
+	Input: POST data may include an optional custom room code.
+	Returns: HTTP 201 with RoomSerializer data or HTTP 400 for duplicate codes.
+	"""
+
 	permission_classes = [IsAuthenticated]
 
 	def post(self, request):
+		"""Handle room creation requests.
+
+		Input: authenticated request with optional `code` in request.data.
+		Returns: a DRF Response containing the created room state.
+		"""
+
 		body = request.data
 		room_code = (body.get("code") or "").strip().upper() or None
 		player = get_object_or_404(Player, user__username=request.user.username)
@@ -156,9 +213,21 @@ class CreateRoomView(APIView):
 
 
 class JoinRoomView(APIView):
+	"""Join an existing room by code.
+
+	Input: POST request with a URL code and authenticated user.
+	Returns: HTTP 200 with room state or HTTP 400 with a room error payload.
+	"""
+
 	permission_classes = [IsAuthenticated]
 	
 	def post(self, request, code):
+		"""Handle room join requests under a row lock.
+
+		Input: authenticated request and room code from the URL.
+		Returns: a DRF Response describing the joined room or the join failure.
+		"""
+
 		body = request.data
 		room_code = (code or body.get("code") or "").strip().upper()
 		player = get_object_or_404(Player, user__username=request.user.username)
@@ -179,6 +248,7 @@ class JoinRoomView(APIView):
 			room_id = room.pk
 			already_in_room = room.player_1_id == player.pk or room.player_2_id == player.pk
 
+			# Decide the response while the row is locked so two joiners cannot claim player_2.
 			if already_in_room:
 				message_type = "room_joined"
 				should_broadcast = False
@@ -219,9 +289,21 @@ class JoinRoomView(APIView):
 
 
 class LeaveRoomView(APIView):
+	"""Remove the authenticated player from a room.
+
+	Input: POST request with a URL room code.
+	Returns: HTTP 200 with the resulting room state.
+	"""
+
 	permission_classes = [IsAuthenticated]
 
 	def post(self, request, code):
+		"""Handle leave-room requests.
+
+		Input: authenticated request and room code from the URL.
+		Returns: a DRF Response containing the current room state after leaving.
+		"""
+
 		room_code = (code or "").strip().upper()
 		player = get_object_or_404(Player, user__username=request.user.username)
 
@@ -245,9 +327,21 @@ class LeaveRoomView(APIView):
 
 
 class StartBotGameView(APIView):
+	"""Start a bot game from a waiting room.
+
+	Input: POST request from the room creator.
+	Returns: HTTP 200 with room state or HTTP 400 when the action is invalid.
+	"""
+
 	permission_classes = [IsAuthenticated]
 
 	def post(self, request, code):
+		"""Handle bot-game start requests.
+
+		Input: authenticated request and room code from the URL.
+		Returns: a DRF Response containing the bot-enabled room state.
+		"""
+
 		room_code = (code or "").strip().upper()
 		player = get_object_or_404(Player, user__username=request.user.username)
 
@@ -283,9 +377,21 @@ class StartBotGameView(APIView):
 
 
 class ResetRoomGameView(APIView):
+	"""Reset a finished room for another round.
+
+	Input: POST request from one of the room players.
+	Returns: HTTP 200 with reset room state or HTTP 400 if reset is not allowed.
+	"""
+
 	permission_classes = [IsAuthenticated]
 
 	def post(self, request, code):
+		"""Handle reset requests for finished games.
+
+		Input: authenticated request and room code from the URL.
+		Returns: a DRF Response containing the reset room state.
+		"""
+
 		room_code = (code or "").strip().upper()
 		player = get_object_or_404(Player, user__username=request.user.username)
 
@@ -319,9 +425,21 @@ class ResetRoomGameView(APIView):
 
 
 class BotMoveSuggestionView(APIView):
+	"""Return a bot move suggestion for a supplied board.
+
+	Input: POST data with board, botSymbol, depth, parallel, and maxWorkers fields.
+	Returns: HTTP 200 with a suggested column or HTTP 400 with a bot error payload.
+	"""
+
 	permission_classes = [IsAuthenticated]
 
 	def post(self, request):
+		"""Handle standalone bot suggestion requests.
+
+		Input: authenticated request data describing the board and search settings.
+		Returns: a DRF Response with the minimax suggestion.
+		"""
+
 		try:
 			suggestion = suggest_bot_move(
 				board=request.data.get("board"),

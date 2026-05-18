@@ -3,6 +3,12 @@ import django.db.models.deletion
 
 
 def mark_existing_ready_rooms(apps, schema_editor):
+	"""Backfill ready status for rooms that already had two players.
+
+	Input: historical app registry and schema editor provided by Django migrations.
+	Returns: None after updating matching historical Room rows.
+	"""
+
 	room_model = apps.get_model("game", "Room")
 	room_model.objects.filter(
 		player_1__isnull=False,
