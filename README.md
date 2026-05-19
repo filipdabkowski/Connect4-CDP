@@ -344,3 +344,7 @@ npm run dev
 ```
 
 The frontend expects an API base URL through `VITE_API_BASE_URL`. In the Docker setup this is configured to use the reverse proxy path `/api/`.
+
+## Game Screenshots
+
+![alt5](/static/img5.png)
