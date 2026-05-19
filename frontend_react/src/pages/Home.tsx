@@ -34,8 +34,8 @@ function normalizeRoomCode(value: string) {
  * @returns Absolute ws:// or wss:// URL with the current access token query parameter.
  */
 function buildGameSocketUrl(roomCode: string) {
-    const apiBaseUrl = api.defaults.baseURL ?? "http://localhost:8000/api/";
-    const backendUrl = new URL(apiBaseUrl);
+    const apiBaseUrl = api.defaults.baseURL ?? "/api/";
+    const backendUrl = new URL(apiBaseUrl, window.location.origin);
     const protocol = backendUrl.protocol === "https:" ? "wss:" : "ws:";
     const token = localStorage.getItem("access_token");
     const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : "";
